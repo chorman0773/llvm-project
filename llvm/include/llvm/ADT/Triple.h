@@ -99,7 +99,8 @@ public:
     renderscript32, // 32-bit RenderScript
     renderscript64, // 64-bit RenderScript
     ve,             // NEC SX-Aurora Vector Engine
-    LastArchType = ve
+    wc65c816,       // wc65c816
+    LastArchType = wc65c816
   };
   enum SubArchType {
     NoSubArch,
@@ -154,7 +155,8 @@ public:
     Mesa,
     SUSE,
     OpenEmbedded,
-    LastVendorType = OpenEmbedded
+    SNES, // SNES and SNESDEV are merged internally, the only difference is the files used
+    LastVendorType = SNES
   };
   enum OSType {
     UnknownOS,
@@ -194,7 +196,8 @@ public:
     Hurd,       // GNU/Hurd
     WASI,       // Experimental WebAssembly OS
     Emscripten,
-    LastOSType = Emscripten
+    None,
+    LastOSType = None
   };
   enum EnvironmentType {
     UnknownEnvironment,
