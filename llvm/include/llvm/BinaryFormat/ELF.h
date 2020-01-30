@@ -232,7 +232,6 @@ enum {
                          // Controller
   EM_CE = 119,           // Freescale Communication Engine RISC core
   EM_M32C = 120,         // Renesas M32C series microprocessors
-  EM_65816 = 129,        // 65816 and 65c816
   EM_TSK3000 = 131,      // Altium TSK3000 core
   EM_RS08 = 132,         // Freescale RS08 embedded processor
   EM_SHARC = 133,        // Analog Devices SHARC family of 32-bit DSP
@@ -313,6 +312,7 @@ enum {
   EM_LANAI = 244,         // Lanai 32-bit processor
   EM_BPF = 247,           // Linux kernel bpf virtual machine
   EM_VE = 251,            // NEC SX-Aurora VE
+  EM_65816 = 301,         // 65816/65c816 (tentative)
 };
 
 // Object file classes.
