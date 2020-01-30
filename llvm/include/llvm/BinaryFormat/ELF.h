@@ -232,7 +232,6 @@ enum {
                          // Controller
   EM_CE = 119,           // Freescale Communication Engine RISC core
   EM_M32C = 120,         // Renesas M32C series microprocessors
-  EM_65816 = 129,        // 65816 and 65c816
   EM_TSK3000 = 131,      // Altium TSK3000 core
   EM_RS08 = 132,         // Freescale RS08 embedded processor
   EM_SHARC = 133,        // Analog Devices SHARC family of 32-bit DSP
