@@ -6,7 +6,6 @@
 #define SNES_DEV_WC65C816TARGETMACHINE_H
 
 #include "llvm/Target/TargetMachine.h"
-#include "wc65c816Instructions.hpp"
 
 namespace llvm{
     class Module;
