@@ -12,5 +12,5 @@
 using namespace llvm;
 wc65c816TargetMachine::wc65c816TargetMachine(const Module& M,const std::string& FS)
     : layout("e-p:32:32-f128:16:16-i16:16"),
-    instructions(M,FS),
+    instructions(),
     frameInfo(TargetFrameInfo::StackGrowsDown,4,0){}
