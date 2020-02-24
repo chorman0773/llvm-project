@@ -1,4 +1,4 @@
-//===-- SBTarget.cpp --------------------------------------------*- C++ -*-===//
+//===-- SBTarget.cpp ------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -118,7 +118,7 @@ const SBTarget &SBTarget::operator=(const SBTarget &rhs) {
 }
 
 // Destructor
-SBTarget::~SBTarget() {}
+SBTarget::~SBTarget() = default;
 
 bool SBTarget::EventIsTargetEvent(const SBEvent &event) {
   LLDB_RECORD_STATIC_METHOD(bool, SBTarget, EventIsTargetEvent,
@@ -677,9 +677,9 @@ SBTarget::ResolveSymbolContextForAddress(const SBAddress &addr,
 
 size_t SBTarget::ReadMemory(const SBAddress addr, void *buf, size_t size,
                             lldb::SBError &error) {
-  LLDB_RECORD_DUMMY(size_t, SBTarget, ReadMemory,
-                    (const lldb::SBAddress, void *, size_t, lldb::SBError &),
-                    addr, buf, size, error);
+  LLDB_RECORD_METHOD(size_t, SBTarget, ReadMemory,
+                     (const lldb::SBAddress, void *, size_t, lldb::SBError &),
+                     addr, buf, size, error);
 
   SBError sb_error;
   size_t bytes_read = 0;
@@ -2054,21 +2054,22 @@ lldb::SBInstructionList SBTarget::ReadInstructions(lldb::SBAddress base_addr,
 lldb::SBInstructionList SBTarget::GetInstructions(lldb::SBAddress base_addr,
                                                   const void *buf,
                                                   size_t size) {
-  LLDB_RECORD_DUMMY(lldb::SBInstructionList, SBTarget, GetInstructions,
-                    (lldb::SBAddress, const void *, size_t), base_addr, buf,
-                    size);
+  LLDB_RECORD_METHOD(lldb::SBInstructionList, SBTarget, GetInstructions,
+                     (lldb::SBAddress, const void *, size_t), base_addr, buf,
+                     size);
 
-  return GetInstructionsWithFlavor(base_addr, nullptr, buf, size);
+  return LLDB_RECORD_RESULT(
+      GetInstructionsWithFlavor(base_addr, nullptr, buf, size));
 }
 
 lldb::SBInstructionList
 SBTarget::GetInstructionsWithFlavor(lldb::SBAddress base_addr,
                                     const char *flavor_string, const void *buf,
                                     size_t size) {
-  LLDB_RECORD_DUMMY(lldb::SBInstructionList, SBTarget,
-                    GetInstructionsWithFlavor,
-                    (lldb::SBAddress, const char *, const void *, size_t),
-                    base_addr, flavor_string, buf, size);
+  LLDB_RECORD_METHOD(lldb::SBInstructionList, SBTarget,
+                     GetInstructionsWithFlavor,
+                     (lldb::SBAddress, const char *, const void *, size_t),
+                     base_addr, flavor_string, buf, size);
 
   SBInstructionList sb_instructions;
 
@@ -2086,30 +2087,31 @@ SBTarget::GetInstructionsWithFlavor(lldb::SBAddress base_addr,
         UINT32_MAX, data_from_file));
   }
 
-  return sb_instructions;
+  return LLDB_RECORD_RESULT(sb_instructions);
 }
 
 lldb::SBInstructionList SBTarget::GetInstructions(lldb::addr_t base_addr,
                                                   const void *buf,
                                                   size_t size) {
-  LLDB_RECORD_DUMMY(lldb::SBInstructionList, SBTarget, GetInstructions,
-                    (lldb::addr_t, const void *, size_t), base_addr, buf, size);
+  LLDB_RECORD_METHOD(lldb::SBInstructionList, SBTarget, GetInstructions,
+                     (lldb::addr_t, const void *, size_t), base_addr, buf,
+                     size);
 
-  return GetInstructionsWithFlavor(ResolveLoadAddress(base_addr), nullptr, buf,
-                                   size);
+  return LLDB_RECORD_RESULT(GetInstructionsWithFlavor(
+      ResolveLoadAddress(base_addr), nullptr, buf, size));
 }
 
 lldb::SBInstructionList
 SBTarget::GetInstructionsWithFlavor(lldb::addr_t base_addr,
                                     const char *flavor_string, const void *buf,
                                     size_t size) {
-  LLDB_RECORD_DUMMY(lldb::SBInstructionList, SBTarget,
-                    GetInstructionsWithFlavor,
-                    (lldb::addr_t, const char *, const void *, size_t),
-                    base_addr, flavor_string, buf, size);
+  LLDB_RECORD_METHOD(lldb::SBInstructionList, SBTarget,
+                     GetInstructionsWithFlavor,
+                     (lldb::addr_t, const char *, const void *, size_t),
+                     base_addr, flavor_string, buf, size);
 
-  return GetInstructionsWithFlavor(ResolveLoadAddress(base_addr), flavor_string,
-                                   buf, size);
+  return LLDB_RECORD_RESULT(GetInstructionsWithFlavor(
+      ResolveLoadAddress(base_addr), flavor_string, buf, size));
 }
 
 SBError SBTarget::SetSectionLoadAddress(lldb::SBSection section,
@@ -2386,6 +2388,30 @@ void SBTarget::SetLaunchInfo(const lldb::SBLaunchInfo &launch_info) {
     m_opaque_sp->SetProcessLaunchInfo(launch_info.ref());
 }
 
+SBStructuredData SBTarget::GetExtendedCrashInformation() {
+  LLDB_RECORD_METHOD_NO_ARGS(lldb::SBStructuredData, SBTarget,
+                             GetExtendedCrashInformation);
+  SBStructuredData data;
+  TargetSP target_sp(GetSP());
+  if (!target_sp)
+    return LLDB_RECORD_RESULT(data);
+
+  PlatformSP platform_sp = target_sp->GetPlatform();
+
+  if (!target_sp)
+    return LLDB_RECORD_RESULT(data);
+
+  auto expected_data =
+      platform_sp->FetchExtendedCrashInformation(*target_sp.get());
+
+  if (!expected_data)
+    return LLDB_RECORD_RESULT(data);
+
+  StructuredData::ObjectSP fetched_data = *expected_data;
+  data.m_impl_up->SetObjectSP(fetched_data);
+  return LLDB_RECORD_RESULT(data);
+}
+
 namespace lldb_private {
 namespace repro {
 
@@ -2628,6 +2654,21 @@ void RegisterMethods<SBTarget>(Registry &R) {
   LLDB_REGISTER_METHOD_CONST(lldb::SBLaunchInfo, SBTarget, GetLaunchInfo, ());
   LLDB_REGISTER_METHOD(void, SBTarget, SetLaunchInfo,
                        (const lldb::SBLaunchInfo &));
+  LLDB_REGISTER_METHOD(lldb::SBStructuredData, SBTarget,
+                       GetExtendedCrashInformation, ());
+  LLDB_REGISTER_METHOD(
+      size_t, SBTarget, ReadMemory,
+      (const lldb::SBAddress, void *, size_t, lldb::SBError &));
+  LLDB_REGISTER_METHOD(lldb::SBInstructionList, SBTarget, GetInstructions,
+                       (lldb::SBAddress, const void *, size_t));
+  LLDB_REGISTER_METHOD(lldb::SBInstructionList, SBTarget,
+                       GetInstructionsWithFlavor,
+                       (lldb::SBAddress, const char *, const void *, size_t));
+  LLDB_REGISTER_METHOD(lldb::SBInstructionList, SBTarget, GetInstructions,
+                       (lldb::addr_t, const void *, size_t));
+  LLDB_REGISTER_METHOD(lldb::SBInstructionList, SBTarget,
+                       GetInstructionsWithFlavor,
+                       (lldb::addr_t, const char *, const void *, size_t));
 }
 
 }

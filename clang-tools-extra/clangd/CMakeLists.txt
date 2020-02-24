@@ -30,7 +30,7 @@ if(CLANG_BUILT_STANDALONE)
 endif()
 
 set(CLANGD_ATOMIC_LIB "")
-if(NOT HAVE_CXX_ATOMICS64_WITHOUT_LIB)
+if(NOT HAVE_CXX_ATOMICS_WITHOUT_LIB OR NOT HAVE_CXX_ATOMICS64_WITHOUT_LIB)
   list(APPEND CLANGD_ATOMIC_LIB "atomic")
 endif()
 
@@ -62,6 +62,7 @@ add_clang_library(clangDaemon
   IncludeFixer.cpp
   JSONTransport.cpp
   Logger.cpp
+  PathMapping.cpp
   Protocol.cpp
   Quality.cpp
   ParsedAST.cpp

@@ -7,6 +7,7 @@
 ; CHECK-NEXT:    FunctionPass Manager
 ; CHECK-NEXT:      Expand Atomic instructions
 ; CHECK-NEXT:      Simplify the CFG
+; CHECK-NEXT:      MVE gather/scatter lowering
 ; CHECK-NEXT:      Dominator Tree Construction
 ; CHECK-NEXT:      Basic Alias Analysis (stateless AA impl)
 ; CHECK-NEXT:      Module Verifier
@@ -154,6 +155,9 @@
 ; CHECK-NEXT:      Machine Block Frequency Analysis
 ; CHECK-NEXT:      MachinePostDominator Tree Construction
 ; CHECK-NEXT:      Branch Probability Basic Block Placement
+; CHECK-NEXT:      Insert fentry calls
+; CHECK-NEXT:      Insert XRay ops
+; CHECK-NEXT:      Implement the 'patchable-function' attribute
 ; CHECK-NEXT:      Thumb2 instruction size reduce pass
 ; CHECK-NEXT:      Unpack machine instruction bundles
 ; CHECK-NEXT:      optimise barriers pass
@@ -166,9 +170,6 @@
 ; CHECK-NEXT:      Contiguously Lay Out Funclets
 ; CHECK-NEXT:      StackMap Liveness Analysis
 ; CHECK-NEXT:      Live DEBUG_VALUE analysis
-; CHECK-NEXT:      Insert fentry calls
-; CHECK-NEXT:      Insert XRay ops
-; CHECK-NEXT:      Implement the 'patchable-function' attribute
 ; CHECK-NEXT:      Lazy Machine Block Frequency Analysis
 ; CHECK-NEXT:      Machine Optimization Remark Emitter
 ; CHECK-NEXT:      ARM Assembly Printer

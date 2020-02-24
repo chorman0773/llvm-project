@@ -42,7 +42,7 @@
 //    relocation targets. Relocation targets are considered equivalent if
 //    their targets are in the same equivalence class. Sections with
 //    different relocation targets are put into different equivalence
-//    clases.
+//    classes.
 //
 // 3. If we split an equivalence class in step 2, two relocations
 //    previously target the same equivalence class may now target
@@ -84,6 +84,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/Object/ELF.h"
+#include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/xxhash.h"
 #include <algorithm>
 #include <atomic>
@@ -525,7 +526,10 @@ template <class ELFT> void ICF<ELFT>::run() {
 }
 
 // ICF entry point function.
-template <class ELFT> void doIcf() { ICF<ELFT>().run(); }
+template <class ELFT> void doIcf() {
+  llvm::TimeTraceScope timeScope("ICF");
+  ICF<ELFT>().run();
+}
 
 template void doIcf<ELF32LE>();
 template void doIcf<ELF32BE>();

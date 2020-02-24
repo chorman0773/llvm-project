@@ -113,6 +113,7 @@
 #define setitimer __setitimer50
 #define setlocale __setlocale50
 #define shmctl __shmctl50
+#define sigaltstack __sigaltstack14
 #define sigemptyset __sigemptyset14
 #define sigfillset __sigfillset14
 #define sigpending __sigpending14
@@ -9670,6 +9671,15 @@ INTERCEPTOR(void, qsort, void *base, SIZE_T nmemb, SIZE_T size,
             qsort_compar_f compar) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, qsort, base, nmemb, size, compar);
+  // Run the comparator over all array elements to detect any memory issues.
+  if (nmemb > 1) {
+    for (SIZE_T i = 0; i < nmemb - 1; ++i) {
+      void *p = (void *)((char *)base + i * size);
+      void *q = (void *)((char *)base + (i + 1) * size);
+      COMMON_INTERCEPTOR_UNPOISON_PARAM(2);
+      compar(p, q);
+    }
+  }
   qsort_compar_f old_compar = qsort_compar;
   qsort_compar = compar;
   SIZE_T old_size = qsort_size;
@@ -9699,6 +9709,15 @@ INTERCEPTOR(void, qsort_r, void *base, SIZE_T nmemb, SIZE_T size,
             qsort_r_compar_f compar, void *arg) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, qsort_r, base, nmemb, size, compar, arg);
+  // Run the comparator over all array elements to detect any memory issues.
+  if (nmemb > 1) {
+    for (SIZE_T i = 0; i < nmemb - 1; ++i) {
+      void *p = (void *)((char *)base + i * size);
+      void *q = (void *)((char *)base + (i + 1) * size);
+      COMMON_INTERCEPTOR_UNPOISON_PARAM(3);
+      compar(p, q, arg);
+    }
+  }
   qsort_r_compar_f old_compar = qsort_r_compar;
   qsort_r_compar = compar;
   SIZE_T old_size = qsort_r_size;
@@ -9711,6 +9730,24 @@ INTERCEPTOR(void, qsort_r, void *base, SIZE_T nmemb, SIZE_T size,
 #define INIT_QSORT_R COMMON_INTERCEPT_FUNCTION(qsort_r)
 #else
 #define INIT_QSORT_R
+#endif
+
+#if SANITIZER_INTERCEPT_SIGALTSTACK
+INTERCEPTOR(int, sigaltstack, void *ss, void *oss) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, sigaltstack, ss, oss);
+  if (ss != nullptr) {
+    COMMON_INTERCEPTOR_READ_RANGE(ctx, ss, struct_stack_t_sz);
+  }
+  int r = REAL(sigaltstack)(ss, oss);
+  if (r == 0 && oss != nullptr) {
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, oss, struct_stack_t_sz);
+  }
+  return r;
+}
+#define INIT_SIGALTSTACK COMMON_INTERCEPT_FUNCTION(sigaltstack)
+#else
+#define INIT_SIGALTSTACK
 #endif
 
 #include "sanitizer_common_interceptors_netbsd_compat.inc"
@@ -10018,6 +10055,7 @@ static void InitializeCommonInterceptors() {
   INIT_GETENTROPY;
   INIT_QSORT;
   INIT_QSORT_R;
+  INIT_SIGALTSTACK;
 
   INIT___PRINTF_CHK;
 }

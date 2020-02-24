@@ -47,7 +47,7 @@ static const MCPhysReg VRRegNo[] = {
 };
 
 static unsigned computeReturnSaveOffset(const PPCSubtarget &STI) {
-  if (STI.isDarwinABI() || STI.isAIXABI())
+  if (STI.isAIXABI())
     return STI.isPPC64() ? 16 : 8;
   // SVR4 ABI:
   return STI.isPPC64() ? 16 : 4;
@@ -60,20 +60,12 @@ static unsigned computeTOCSaveOffset(const PPCSubtarget &STI) {
 }
 
 static unsigned computeFramePointerSaveOffset(const PPCSubtarget &STI) {
-  // For the Darwin ABI:
-  // We cannot use the TOC save slot (offset +20) in the PowerPC linkage area
-  // for saving the frame pointer (if needed.)  While the published ABI has
-  // not used this slot since at least MacOSX 10.2, there is older code
-  // around that does use it, and that needs to continue to work.
-  if (STI.isDarwinABI())
-    return STI.isPPC64() ? -8U : -4U;
-
-  // SVR4 ABI: First slot in the general register save area.
+  // First slot in the general register save area.
   return STI.isPPC64() ? -8U : -4U;
 }
 
 static unsigned computeLinkageSize(const PPCSubtarget &STI) {
-  if ((STI.isDarwinABI() || STI.isAIXABI()) || STI.isPPC64())
+  if (STI.isAIXABI() || STI.isPPC64())
     return (STI.isELFv2ABI() ? 4 : 6) * (STI.isPPC64() ? 8 : 4);
 
   // 32-bit SVR4 ABI:
@@ -81,9 +73,6 @@ static unsigned computeLinkageSize(const PPCSubtarget &STI) {
 }
 
 static unsigned computeBasePointerSaveOffset(const PPCSubtarget &STI) {
-  if (STI.isDarwinABI())
-    return STI.isPPC64() ? -16U : -8U;
-
   // SVR4 ABI: First slot in the general register save area.
   return STI.isPPC64()
              ? -16U
@@ -108,66 +97,96 @@ PPCFrameLowering::PPCFrameLowering(const PPCSubtarget &STI)
 // With the SVR4 ABI, callee-saved registers have fixed offsets on the stack.
 const PPCFrameLowering::SpillSlot *PPCFrameLowering::getCalleeSavedSpillSlots(
     unsigned &NumEntries) const {
-  if (Subtarget.isDarwinABI()) {
-    NumEntries = 1;
-    if (Subtarget.isPPC64()) {
-      static const SpillSlot darwin64Offsets = {PPC::X31, -8};
-      return &darwin64Offsets;
-    } else {
-      static const SpillSlot darwinOffsets = {PPC::R31, -4};
-      return &darwinOffsets;
-    }
-  }
-
   // Early exit if not using the SVR4 ABI.
   if (!Subtarget.isSVR4ABI()) {
     NumEntries = 0;
     return nullptr;
   }
 
+// Floating-point register save area offsets.
+#define CALLEE_SAVED_FPRS \
+      {PPC::F31, -8},     \
+      {PPC::F30, -16},    \
+      {PPC::F29, -24},    \
+      {PPC::F28, -32},    \
+      {PPC::F27, -40},    \
+      {PPC::F26, -48},    \
+      {PPC::F25, -56},    \
+      {PPC::F24, -64},    \
+      {PPC::F23, -72},    \
+      {PPC::F22, -80},    \
+      {PPC::F21, -88},    \
+      {PPC::F20, -96},    \
+      {PPC::F19, -104},   \
+      {PPC::F18, -112},   \
+      {PPC::F17, -120},   \
+      {PPC::F16, -128},   \
+      {PPC::F15, -136},   \
+      {PPC::F14, -144}
+
+// 32-bit general purpose register save area offsets.
+#define CALLEE_SAVED_GPRS32 \
+      {PPC::R31, -4},       \
+      {PPC::R30, -8},       \
+      {PPC::R29, -12},      \
+      {PPC::R28, -16},      \
+      {PPC::R27, -20},      \
+      {PPC::R26, -24},      \
+      {PPC::R25, -28},      \
+      {PPC::R24, -32},      \
+      {PPC::R23, -36},      \
+      {PPC::R22, -40},      \
+      {PPC::R21, -44},      \
+      {PPC::R20, -48},      \
+      {PPC::R19, -52},      \
+      {PPC::R18, -56},      \
+      {PPC::R17, -60},      \
+      {PPC::R16, -64},      \
+      {PPC::R15, -68},      \
+      {PPC::R14, -72}
+
+// 64-bit general purpose register save area offsets.
+#define CALLEE_SAVED_GPRS64 \
+      {PPC::X31, -8},       \
+      {PPC::X30, -16},      \
+      {PPC::X29, -24},      \
+      {PPC::X28, -32},      \
+      {PPC::X27, -40},      \
+      {PPC::X26, -48},      \
+      {PPC::X25, -56},      \
+      {PPC::X24, -64},      \
+      {PPC::X23, -72},      \
+      {PPC::X22, -80},      \
+      {PPC::X21, -88},      \
+      {PPC::X20, -96},      \
+      {PPC::X19, -104},     \
+      {PPC::X18, -112},     \
+      {PPC::X17, -120},     \
+      {PPC::X16, -128},     \
+      {PPC::X15, -136},     \
+      {PPC::X14, -144}
+
+// Vector register save area offsets.
+#define CALLEE_SAVED_VRS \
+      {PPC::V31, -16},   \
+      {PPC::V30, -32},   \
+      {PPC::V29, -48},   \
+      {PPC::V28, -64},   \
+      {PPC::V27, -80},   \
+      {PPC::V26, -96},   \
+      {PPC::V25, -112},  \
+      {PPC::V24, -128},  \
+      {PPC::V23, -144},  \
+      {PPC::V22, -160},  \
+      {PPC::V21, -176},  \
+      {PPC::V20, -192}
+
   // Note that the offsets here overlap, but this is fixed up in
   // processFunctionBeforeFrameFinalized.
 
   static const SpillSlot Offsets[] = {
-      // Floating-point register save area offsets.
-      {PPC::F31, -8},
-      {PPC::F30, -16},
-      {PPC::F29, -24},
-      {PPC::F28, -32},
-      {PPC::F27, -40},
-      {PPC::F26, -48},
-      {PPC::F25, -56},
-      {PPC::F24, -64},
-      {PPC::F23, -72},
-      {PPC::F22, -80},
-      {PPC::F21, -88},
-      {PPC::F20, -96},
-      {PPC::F19, -104},
-      {PPC::F18, -112},
-      {PPC::F17, -120},
-      {PPC::F16, -128},
-      {PPC::F15, -136},
-      {PPC::F14, -144},
-
-      // General register save area offsets.
-      {PPC::R31, -4},
-      {PPC::R30, -8},
-      {PPC::R29, -12},
-      {PPC::R28, -16},
-      {PPC::R27, -20},
-      {PPC::R26, -24},
-      {PPC::R25, -28},
-      {PPC::R24, -32},
-      {PPC::R23, -36},
-      {PPC::R22, -40},
-      {PPC::R21, -44},
-      {PPC::R20, -48},
-      {PPC::R19, -52},
-      {PPC::R18, -56},
-      {PPC::R17, -60},
-      {PPC::R16, -64},
-      {PPC::R15, -68},
-      {PPC::R14, -72},
+      CALLEE_SAVED_FPRS,
+      CALLEE_SAVED_GPRS32,
 
       // CR save area offset.  We map each of the nonvolatile CR fields
       // to the slot for CR2, which is the first of the nonvolatile CR
@@ -178,19 +197,7 @@ const PPCFrameLowering::SpillSlot *PPCFrameLowering::getCalleeSavedSpillSlots(
       // VRSAVE save area offset.
       {PPC::VRSAVE, -4},
 
-      // Vector register save area
-      {PPC::V31, -16},
-      {PPC::V30, -32},
-      {PPC::V29, -48},
-      {PPC::V28, -64},
-      {PPC::V27, -80},
-      {PPC::V26, -96},
-      {PPC::V25, -112},
-      {PPC::V24, -128},
-      {PPC::V23, -144},
-      {PPC::V22, -160},
-      {PPC::V21, -176},
-      {PPC::V20, -192},
+      CALLEE_SAVED_VRS,
 
       // SPE register save area (overlaps Vector save area).
       {PPC::S31, -8},
@@ -213,62 +220,14 @@ const PPCFrameLowering::SpillSlot *PPCFrameLowering::getCalleeSavedSpillSlots(
       {PPC::S14, -144}};
 
   static const SpillSlot Offsets64[] = {
-      // Floating-point register save area offsets.
-      {PPC::F31, -8},
-      {PPC::F30, -16},
-      {PPC::F29, -24},
-      {PPC::F28, -32},
-      {PPC::F27, -40},
-      {PPC::F26, -48},
-      {PPC::F25, -56},
-      {PPC::F24, -64},
-      {PPC::F23, -72},
-      {PPC::F22, -80},
-      {PPC::F21, -88},
-      {PPC::F20, -96},
-      {PPC::F19, -104},
-      {PPC::F18, -112},
-      {PPC::F17, -120},
-      {PPC::F16, -128},
-      {PPC::F15, -136},
-      {PPC::F14, -144},
-
-      // General register save area offsets.
-      {PPC::X31, -8},
-      {PPC::X30, -16},
-      {PPC::X29, -24},
-      {PPC::X28, -32},
-      {PPC::X27, -40},
-      {PPC::X26, -48},
-      {PPC::X25, -56},
-      {PPC::X24, -64},
-      {PPC::X23, -72},
-      {PPC::X22, -80},
-      {PPC::X21, -88},
-      {PPC::X20, -96},
-      {PPC::X19, -104},
-      {PPC::X18, -112},
-      {PPC::X17, -120},
-      {PPC::X16, -128},
-      {PPC::X15, -136},
-      {PPC::X14, -144},
+      CALLEE_SAVED_FPRS,
+      CALLEE_SAVED_GPRS64,
 
       // VRSAVE save area offset.
       {PPC::VRSAVE, -4},
 
-      // Vector register save area
-      {PPC::V31, -16},
-      {PPC::V30, -32},
-      {PPC::V29, -48},
-      {PPC::V28, -64},
-      {PPC::V27, -80},
-      {PPC::V26, -96},
-      {PPC::V25, -112},
-      {PPC::V24, -128},
-      {PPC::V23, -144},
-      {PPC::V22, -160},
-      {PPC::V21, -176},
-      {PPC::V20, -192}};
+      CALLEE_SAVED_VRS
+  };
 
   if (Subtarget.isPPC64()) {
     NumEntries = array_lengthof(Offsets64);
@@ -790,8 +749,7 @@ void PPCFrameLowering::emitPrologue(MachineFunction &MF,
   bool isSVR4ABI = Subtarget.isSVR4ABI();
   bool isAIXABI = Subtarget.isAIXABI();
   bool isELFv2ABI = Subtarget.isELFv2ABI();
-  assert((Subtarget.isDarwinABI() || isSVR4ABI || isAIXABI) &&
-         "Unsupported PPC ABI.");
+  assert((isSVR4ABI || isAIXABI) && "Unsupported PPC ABI.");
 
   // Scan the prolog, looking for an UPDATE_VRSAVE instruction.  If we find it,
   // process it.
@@ -1776,7 +1734,6 @@ void PPCFrameLowering::determineCalleeSaves(MachineFunction &MF,
   //  Save R31 if necessary
   int FPSI = FI->getFramePointerSaveIndex();
   const bool isPPC64 = Subtarget.isPPC64();
-  const bool IsDarwinABI  = Subtarget.isDarwinABI();
   MachineFrameInfo &MFI = MF.getFrameInfo();
 
   // If the frame pointer save index hasn't been defined yet.
@@ -1824,12 +1781,19 @@ void PPCFrameLowering::determineCalleeSaves(MachineFunction &MF,
   }
 
   // For 32-bit SVR4, allocate the nonvolatile CR spill slot iff the
-  // function uses CR 2, 3, or 4.
-  if (!isPPC64 && !IsDarwinABI &&
-      (SavedRegs.test(PPC::CR2) ||
-       SavedRegs.test(PPC::CR3) ||
+  // function uses CR 2, 3, or 4. For 64-bit SVR4 we create a FixedStack
+  // object at the offset of the CR-save slot in the linkage area. The actual
+  // save and restore of the condition register will be created as part of the
+  // prologue and epilogue insertion, but the FixedStack object is needed to
+  // keep the CalleSavedInfo valid.
+  if (Subtarget.isSVR4ABI() &&
+      (SavedRegs.test(PPC::CR2) || SavedRegs.test(PPC::CR3) ||
        SavedRegs.test(PPC::CR4))) {
-    int FrameIdx = MFI.CreateFixedObject((uint64_t)4, (int64_t)-4, true);
+    const uint64_t SpillSize = 4; // Condition register is always 4 bytes.
+    const int64_t SpillOffset = Subtarget.isPPC64() ? 8 : -4;
+    int FrameIdx =
+        MFI.CreateFixedObject(SpillSize, SpillOffset,
+                              /* IsImmutable */ true, /* IsAliased */ false);
     FI->setCRSpillFrameIndex(FrameIdx);
   }
 }
@@ -2026,19 +1990,13 @@ void PPCFrameLowering::processFunctionBeforeFrameFinalized(MachineFunction &MF,
   // to the stack pointer and hence does not need an adjustment here.
   // Only CR2 (the first nonvolatile spilled) has an associated frame
   // index so that we have a single uniform save area.
-  if (spillsCR(MF) && !(Subtarget.isPPC64() && Subtarget.isSVR4ABI())) {
+  if (spillsCR(MF) && Subtarget.is32BitELFABI()) {
     // Adjust the frame index of the CR spill slot.
-    for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
-      unsigned Reg = CSI[i].getReg();
-
-      if ((Subtarget.isSVR4ABI() && Reg == PPC::CR2)
-          // Leave Darwin logic as-is.
-          || (!Subtarget.isSVR4ABI() &&
-              (PPC::CRBITRCRegClass.contains(Reg) ||
-               PPC::CRRCRegClass.contains(Reg)))) {
-        int FI = CSI[i].getFrameIdx();
-
+    for (const auto &CSInfo : CSI) {
+      if (CSInfo.getReg() == PPC::CR2) {
+        int FI = CSInfo.getFrameIdx();
         MFI.setObjectOffset(FI, LowerBound + MFI.getObjectOffset(FI));
+        break;
       }
     }
 
@@ -2179,12 +2137,9 @@ bool PPCFrameLowering::assignCalleeSavedSpillSlots(
   return AllSpilledToReg;
 }
 
-
-bool
-PPCFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
-                                     MachineBasicBlock::iterator MI,
-                                     const std::vector<CalleeSavedInfo> &CSI,
-                                     const TargetRegisterInfo *TRI) const {
+bool PPCFrameLowering::spillCalleeSavedRegisters(
+    MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
+    ArrayRef<CalleeSavedInfo> CSI, const TargetRegisterInfo *TRI) const {
 
   // Currently, this function only handles SVR4 32- and 64-bit ABIs.
   // Return false otherwise to maintain pre-existing behavior.
@@ -2201,10 +2156,8 @@ PPCFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
 
   for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
     unsigned Reg = CSI[i].getReg();
-    // Only Darwin actually uses the VRSAVE register, but it can still appear
-    // here if, for example, @llvm.eh.unwind.init() is used.  If we're not on
-    // Darwin, ignore it.
-    if (Reg == PPC::VRSAVE && !Subtarget.isDarwinABI())
+    // VRSAVE can appear here if, for example, @llvm.eh.unwind.init() is used.
+    if (Reg == PPC::VRSAVE)
       continue;
 
     // CR2 through CR4 are the nonvolatile CR fields.
@@ -2260,37 +2213,37 @@ PPCFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
         // Use !IsLiveIn for the kill flag.
         // We do not want to kill registers that are live in this function
         // before their use because they will become undefined registers.
-        TII.storeRegToStackSlot(MBB, MI, Reg, !IsLiveIn,
-                                CSI[i].getFrameIdx(), RC, TRI);
+        // Functions without NoUnwind need to preserve the order of elements in
+        // saved vector registers.
+        if (Subtarget.needsSwapsForVSXMemOps() &&
+            !MF->getFunction().hasFnAttribute(Attribute::NoUnwind))
+          TII.storeRegToStackSlotNoUpd(MBB, MI, Reg, !IsLiveIn,
+                                       CSI[i].getFrameIdx(), RC, TRI);
+        else
+          TII.storeRegToStackSlot(MBB, MI, Reg, !IsLiveIn, CSI[i].getFrameIdx(),
+                                  RC, TRI);
       }
     }
   }
   return true;
 }
 
-static void
-restoreCRs(bool isPPC64, bool is31,
-           bool CR2Spilled, bool CR3Spilled, bool CR4Spilled,
-           MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
-           const std::vector<CalleeSavedInfo> &CSI, unsigned CSIIndex) {
+static void restoreCRs(bool is31, bool CR2Spilled, bool CR3Spilled,
+                       bool CR4Spilled, MachineBasicBlock &MBB,
+                       MachineBasicBlock::iterator MI,
+                       ArrayRef<CalleeSavedInfo> CSI, unsigned CSIIndex) {
 
   MachineFunction *MF = MBB.getParent();
   const PPCInstrInfo &TII = *MF->getSubtarget<PPCSubtarget>().getInstrInfo();
   DebugLoc DL;
-  unsigned RestoreOp, MoveReg;
+  unsigned MoveReg = PPC::R12;
 
-  if (isPPC64)
-    // This is handled during epilogue generation.
-    return;
-  else {
-    // 32-bit:  FP-relative
-    MBB.insert(MI, addFrameReference(BuildMI(*MF, DL, TII.get(PPC::LWZ),
-                                             PPC::R12),
-                                     CSI[CSIIndex].getFrameIdx()));
-    RestoreOp = PPC::MTOCRF;
-    MoveReg = PPC::R12;
-  }
+  // 32-bit:  FP-relative
+  MBB.insert(MI,
+             addFrameReference(BuildMI(*MF, DL, TII.get(PPC::LWZ), MoveReg),
+                               CSI[CSIIndex].getFrameIdx()));
 
+  unsigned RestoreOp = PPC::MTOCRF;
   if (CR2Spilled)
     MBB.insert(MI, BuildMI(*MF, DL, TII.get(RestoreOp), PPC::CR2)
                .addReg(MoveReg, getKillRegState(!CR3Spilled && !CR4Spilled)));
@@ -2343,6 +2296,10 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
   return MBB.erase(I);
 }
 
+static bool isCalleeSavedCR(unsigned Reg) {
+  return PPC::CR2 == Reg || Reg == PPC::CR3 || Reg == PPC::CR4;
+}
+
 bool
 PPCFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
                                         MachineBasicBlock::iterator MI,
@@ -2374,13 +2331,16 @@ PPCFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
   for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
     unsigned Reg = CSI[i].getReg();
 
-    // Only Darwin actually uses the VRSAVE register, but it can still appear
-    // here if, for example, @llvm.eh.unwind.init() is used.  If we're not on
-    // Darwin, ignore it.
-    if (Reg == PPC::VRSAVE && !Subtarget.isDarwinABI())
+    // VRSAVE can appear here if, for example, @llvm.eh.unwind.init() is used.
+    if (Reg == PPC::VRSAVE)
       continue;
 
     if ((Reg == PPC::X2 || Reg == PPC::R2) && MustSaveTOC)
+      continue;
+
+    // Restore of callee saved condition register field is handled during
+    // epilogue insertion.
+    if (isCalleeSavedCR(Reg) && !Subtarget.is32BitELFABI())
       continue;
 
     if (Reg == PPC::CR2) {
@@ -2398,12 +2358,10 @@ PPCFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
     } else {
       // When we first encounter a non-CR register after seeing at
       // least one CR register, restore all spilled CRs together.
-      if ((CR2Spilled || CR3Spilled || CR4Spilled)
-          && !(PPC::CR2 <= Reg && Reg <= PPC::CR4)) {
+      if (CR2Spilled || CR3Spilled || CR4Spilled) {
         bool is31 = needsFP(*MF);
-        restoreCRs(Subtarget.isPPC64(), is31,
-                   CR2Spilled, CR3Spilled, CR4Spilled,
-                   MBB, I, CSI, CSIIndex);
+        restoreCRs(is31, CR2Spilled, CR3Spilled, CR4Spilled, MBB, I, CSI,
+                   CSIIndex);
         CR2Spilled = CR3Spilled = CR4Spilled = false;
       }
 
@@ -2415,7 +2373,16 @@ PPCFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
       } else {
        // Default behavior for non-CR saves.
         const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
-        TII.loadRegFromStackSlot(MBB, I, Reg, CSI[i].getFrameIdx(), RC, TRI);
+
+        // Functions without NoUnwind need to preserve the order of elements in
+        // saved vector registers.
+        if (Subtarget.needsSwapsForVSXMemOps() &&
+            !MF->getFunction().hasFnAttribute(Attribute::NoUnwind))
+          TII.loadRegFromStackSlotNoUpd(MBB, I, Reg, CSI[i].getFrameIdx(), RC,
+                                        TRI);
+        else
+          TII.loadRegFromStackSlot(MBB, I, Reg, CSI[i].getFrameIdx(), RC, TRI);
+
         assert(I != MBB.begin() &&
                "loadRegFromStackSlot didn't insert any code!");
       }
@@ -2432,9 +2399,10 @@ PPCFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
 
   // If we haven't yet spilled the CRs, do so now.
   if (CR2Spilled || CR3Spilled || CR4Spilled) {
+    assert(Subtarget.is32BitELFABI() &&
+           "Only set CR[2|3|4]Spilled on 32-bit SVR4.");
     bool is31 = needsFP(*MF);
-    restoreCRs(Subtarget.isPPC64(), is31, CR2Spilled, CR3Spilled, CR4Spilled,
-               MBB, I, CSI, CSIIndex);
+    restoreCRs(is31, CR2Spilled, CR3Spilled, CR4Spilled, MBB, I, CSI, CSIIndex);
   }
 
   return true;
@@ -2445,8 +2413,6 @@ unsigned PPCFrameLowering::getTOCSaveOffset() const {
 }
 
 unsigned PPCFrameLowering::getFramePointerSaveOffset() const {
-  if (Subtarget.isAIXABI())
-    report_fatal_error("FramePointer is not implemented on AIX yet.");
   return FramePointerSaveOffset;
 }
 

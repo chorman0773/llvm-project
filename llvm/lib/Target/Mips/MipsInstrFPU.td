@@ -48,6 +48,7 @@ def MipsFPBrcond : SDNode<"MipsISD::FPBrcond", SDT_MipsFPBrcond,
                           [SDNPHasChain, SDNPOptInGlue]>;
 def MipsTruncIntFP : SDNode<"MipsISD::TruncIntFP", SDT_MipsTruncIntFP>;
 def MipsBuildPairF64 : SDNode<"MipsISD::BuildPairF64", SDT_MipsBuildPairF64>;
+def : GINodeEquiv<G_MERGE_VALUES, MipsBuildPairF64>;
 def MipsExtractElementF64 : SDNode<"MipsISD::ExtractElementF64",
                                    SDT_MipsExtractElementF64>;
 
@@ -628,7 +629,7 @@ let AdditionalPredicates = [IsNotNaCl, NotInMicroMips],
                 INSN_MIPS5_32R2_NOT_32R6_64R6, FGR_64;
 }
 
-/// Floating-point Aritmetic
+/// Floating-point Arithmetic
 let AdditionalPredicates = [NotInMicroMips] in {
   def FADD_S : MMRel, ADDS_FT<"add.s", FGR32Opnd, II_ADD_S, 1, fadd>,
                ADDS_FM<0x00, 16>, ISA_MIPS1;
