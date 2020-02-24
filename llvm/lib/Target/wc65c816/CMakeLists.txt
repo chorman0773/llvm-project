@@ -17,7 +17,7 @@ tablegen(LLVM MipsGenExegesis.inc -gen-exegesis)]]
 
 #[[add_public_tablegen_target(MipsCommonTableGen)]]
 
-add_llvm_target(wc65c816Gen)
+add_llvm_target(wc65c816)
 
 add_subdirectory(AsmParser)
 add_subdirectory(Disassembler)
