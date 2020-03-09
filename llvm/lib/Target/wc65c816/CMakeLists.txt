@@ -1,5 +1,6 @@
 set(LLVM_TARGET_DEFINITIONS wc65c816.td)
 
+tablegen(LLVM wc65c816GenInstrInfo.inc -gen-instr-info)
 #[[tablegen(LLVM MipsGenAsmMatcher.inc -gen-asm-matcher)
 tablegen(LLVM MipsGenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM MipsGenCallingConv.inc -gen-callingconv)
@@ -19,7 +20,3 @@ tablegen(LLVM MipsGenExegesis.inc -gen-exegesis)]]
 
 add_llvm_target(wc65c816)
 
-add_subdirectory(AsmParser)
-add_subdirectory(Disassembler)
-add_subdirectory(MCTargetDesc)
-add_subdirectory(TargetInfo)
