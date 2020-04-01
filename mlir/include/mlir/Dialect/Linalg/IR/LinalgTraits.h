@@ -184,6 +184,10 @@ public:
   //==========================================================================//
   // Input and Output arguments handling.
   //==========================================================================//
+  Value getBuffer(unsigned i) {
+    assert(i < getNumInputsAndOutputBuffers() && "overflowing buffers index");
+    return this->getOperation()->getOperand(i);
+  }
   /// Return the number of inputs and outputs, irrespective of their buffer or
   /// tensor type.
   unsigned getNumInputsAndOutputs() { return nInputs() + nOutputs(); }
@@ -234,10 +238,11 @@ public:
     if (!maybeReferenceIteratorTypes && name != "generic" &&
         name != "indexed_generic") {
       this->getOperation()->dump();
-      llvm_unreachable("Op missing ");
+      llvm_unreachable("Op missing referenceIterators");
     }
 
-    // If we have a reference, build the reference attribute.
+    // If we have a reference, build the reference attribute and set it in the
+    // op before returning.
     auto *ctx = this->getOperation()->getContext();
     auto attrRange = llvm::map_range(*maybeReferenceIteratorTypes,
                                      [ctx](StringRef str) -> Attribute {

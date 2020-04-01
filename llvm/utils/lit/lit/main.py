@@ -20,7 +20,6 @@ import lit.util
 
 def main(builtin_params={}):
     opts = lit.cl_arguments.parse_args()
-
     params = create_params(builtin_params, opts.user_params)
     is_windows = platform.system() == 'Windows'
 
@@ -40,7 +39,7 @@ def main(builtin_params={}):
 
     discovered_tests = lit.discovery.find_tests_for_inputs(lit_config, opts.test_paths)
     if not discovered_tests:
-        sys.stderr.write('error: did not disover any tests for provided path(s)\n')
+        sys.stderr.write('error: did not discover any tests for provided path(s)\n')
         sys.exit(2)
 
     # Command line overrides configuration for maxIndividualTestTime.
@@ -85,8 +84,7 @@ def main(builtin_params={}):
                              'Consider decreasing the number of shards.\n')
             sys.exit(0)
 
-    if opts.max_tests:
-        filtered_tests = filtered_tests[:opts.max_tests]
+    filtered_tests = filtered_tests[:opts.max_tests]
 
     opts.workers = min(len(filtered_tests), opts.workers)
 
@@ -199,8 +197,8 @@ def run_tests(tests, lit_config, opts, numTotalTests):
         if opts.order == 'failing-first':
             touch_file(test)
 
-    run = lit.run.create_run(tests, lit_config, opts.workers, progress_callback,
-                             opts.max_failures, opts.timeout)
+    run = lit.run.Run(tests, lit_config, opts.workers, progress_callback,
+                      opts.max_failures, opts.timeout)
 
     display.print_header()
     try:

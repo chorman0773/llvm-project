@@ -381,11 +381,11 @@ bool MIRParserImpl::initializeCallSiteInfo(
       CSInfo.emplace_back(Reg, ArgRegPair.ArgNo);
     }
 
-    if (TM.Options.EnableDebugEntryValues)
+    if (TM.Options.EmitCallSiteInfo)
       MF.addCallArgsForwardingRegs(&*CallI, std::move(CSInfo));
   }
 
-  if (YamlMF.CallSitesInfo.size() && !TM.Options.EnableDebugEntryValues)
+  if (YamlMF.CallSitesInfo.size() && !TM.Options.EmitCallSiteInfo)
     return error(Twine("Call site info provided but not used"));
   return false;
 }
@@ -401,8 +401,7 @@ MIRParserImpl::initializeMachineFunction(const yaml::MachineFunction &YamlMF,
     Target.reset(new PerTargetMIParsingState(MF.getSubtarget()));
   }
 
-  if (YamlMF.Alignment)
-    MF.setAlignment(Align(YamlMF.Alignment));
+  MF.setAlignment(YamlMF.Alignment.valueOrOne());
   MF.setExposesReturnsTwice(YamlMF.ExposesReturnsTwice);
   MF.setHasWinCFI(YamlMF.HasWinCFI);
 
@@ -437,6 +436,14 @@ MIRParserImpl::initializeMachineFunction(const yaml::MachineFunction &YamlMF,
     reportDiagnostic(
         diagFromBlockStringDiag(Error, YamlMF.Body.Value.SourceRange));
     return true;
+  }
+  // Check Basic Block Section Flags.
+  if (MF.getTarget().getBBSectionsType() == BasicBlockSection::Labels) {
+    MF.createBBLabels();
+    MF.setBBSectionsType(BasicBlockSection::Labels);
+  } else if (MF.hasBBSections()) {
+    MF.setSectionRange();
+    MF.createBBLabels();
   }
   PFS.SM = &SM;
 
@@ -646,7 +653,7 @@ bool MIRParserImpl::initializeFrameInfo(PerFunctionMIParsingState &PFS,
   MFI.setStackSize(YamlMFI.StackSize);
   MFI.setOffsetAdjustment(YamlMFI.OffsetAdjustment);
   if (YamlMFI.MaxAlignment)
-    MFI.ensureMaxAlignment(YamlMFI.MaxAlignment);
+    MFI.ensureMaxAlignment(Align(YamlMFI.MaxAlignment));
   MFI.setAdjustsStack(YamlMFI.AdjustsStack);
   MFI.setHasCalls(YamlMFI.HasCalls);
   if (YamlMFI.MaxCallFrameSize != ~0u)
@@ -683,7 +690,7 @@ bool MIRParserImpl::initializeFrameInfo(PerFunctionMIParsingState &PFS,
       return error(Object.ID.SourceRange.Start,
                    Twine("StackID is not supported by target"));
     MFI.setStackID(ObjectIdx, Object.StackID);
-    MFI.setObjectAlignment(ObjectIdx, Object.Alignment);
+    MFI.setObjectAlignment(ObjectIdx, Object.Alignment.valueOrOne());
     if (!PFS.FixedStackObjectSlots.insert(std::make_pair(Object.ID.Value,
                                                          ObjectIdx))
              .second)
@@ -715,10 +722,11 @@ bool MIRParserImpl::initializeFrameInfo(PerFunctionMIParsingState &PFS,
       return error(Object.ID.SourceRange.Start,
                    Twine("StackID is not supported by target"));
     if (Object.Type == yaml::MachineStackObject::VariableSized)
-      ObjectIdx = MFI.CreateVariableSizedObject(Object.Alignment, Alloca);
+      ObjectIdx =
+          MFI.CreateVariableSizedObject(Object.Alignment.valueOrOne(), Alloca);
     else
       ObjectIdx = MFI.CreateStackObject(
-          Object.Size, Object.Alignment,
+          Object.Size, Object.Alignment.valueOrOne(),
           Object.Type == yaml::MachineStackObject::SpillSlot, Alloca,
           Object.StackID);
     MFI.setObjectOffset(ObjectIdx, Object.Offset);
@@ -830,11 +838,11 @@ bool MIRParserImpl::initializeConstantPool(PerFunctionMIParsingState &PFS,
         parseConstantValue(YamlConstant.Value.Value, Error, M));
     if (!Value)
       return error(Error, YamlConstant.Value.SourceRange);
-    unsigned Alignment =
-        YamlConstant.Alignment
-            ? YamlConstant.Alignment
-            : M.getDataLayout().getPrefTypeAlignment(Value->getType());
-    unsigned Index = ConstantPool.getConstantPoolIndex(Value, Alignment);
+    const Align PrefTypeAlign =
+        M.getDataLayout().getPrefTypeAlign(Value->getType());
+    const Align Alignment = YamlConstant.Alignment.getValueOr(PrefTypeAlign);
+    unsigned Index =
+        ConstantPool.getConstantPoolIndex(Value, Alignment.value());
     if (!ConstantPoolSlots.insert(std::make_pair(YamlConstant.ID.Value, Index))
              .second)
       return error(YamlConstant.ID.SourceRange.Start,

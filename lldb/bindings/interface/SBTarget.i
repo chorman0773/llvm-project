@@ -677,6 +677,9 @@ public:
     lldb::SBBreakpoint
     BreakpointCreateByAddress (addr_t address);
 
+    lldb::SBEnvironment
+    GetEnvironment();
+
     lldb::SBBreakpoint
     BreakpointCreateBySBAddress (SBAddress &sb_address);
 
@@ -948,12 +951,6 @@ public:
 
     void
     SetLaunchInfo (const lldb::SBLaunchInfo &launch_info);
-
-    %feature("autodoc", "
-    Returns the platform's process extended crash information.") GetExtendedCrashInformation;
-    lldb::SBStructuredData
-    GetExtendedCrashInformation ();
-
 
     void SetCollectingStats(bool v);
 

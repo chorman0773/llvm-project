@@ -105,6 +105,11 @@ protected:
   Optional<DestSourcePair>
   isCopyInstrImpl(const MachineInstr &MI) const override;
 
+  /// Specialization of \ref TargetInstrInfo::describeLoadedValue, used to
+  /// enhance debug entry value descriptions for ARM targets.
+  Optional<ParamLoadedValue> describeLoadedValue(const MachineInstr &MI,
+                                                 Register Reg) const override;
+
 public:
   // Return whether the target has an explicit NOP encoding.
   bool hasNOP() const;
@@ -498,16 +503,16 @@ bool isUncondBranchOpcode(int Opc) {
 // the ArmARM.
 
 
-inline static unsigned getARMVPTBlockMask(unsigned NumInsts) {
+inline static ARM::PredBlockMask getARMVPTBlockMask(unsigned NumInsts) {
   switch (NumInsts) {
   case 1:
-    return ARMVCC::T;
+    return ARM::PredBlockMask::T;
   case 2:
-    return ARMVCC::TT;
+    return ARM::PredBlockMask::TT;
   case 3:
-    return ARMVCC::TTT;
+    return ARM::PredBlockMask::TTT;
   case 4:
-    return ARMVCC::TTTT;
+    return ARM::PredBlockMask::TTTT;
   default:
     break;
   };
