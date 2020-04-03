@@ -8133,7 +8133,7 @@ static SDValue LowerAsSplatVectorLoad(SDValue SrcOp, MVT VT, const SDLoc &dl,
 
     // FIXME: 256-bit vector instructions don't require a strict alignment,
     // improve this code to support it better.
-    unsigned RequiredAlign = VT.getSizeInBits()/8;
+    Align RequiredAlign(VT.getSizeInBits() / 8);
     SDValue Chain = LD->getChain();
     // Make sure the stack object alignment is at least 16 or 32.
     MachineFrameInfo &MFI = DAG.getMachineFunction().getFrameInfo();
@@ -8152,9 +8152,9 @@ static SDValue LowerAsSplatVectorLoad(SDValue SrcOp, MVT VT, const SDLoc &dl,
     // Ptr + (Offset & ~15).
     if (Offset < 0)
       return SDValue();
-    if ((Offset % RequiredAlign) & 3)
+    if ((Offset % RequiredAlign.value()) & 3)
       return SDValue();
-    int64_t StartOffset = Offset & ~int64_t(RequiredAlign - 1);
+    int64_t StartOffset = Offset & ~int64_t(RequiredAlign.value() - 1);
     if (StartOffset) {
       SDLoc DL(Ptr);
       Ptr = DAG.getNode(ISD::ADD, DL, Ptr.getValueType(), Ptr,
@@ -39836,13 +39836,19 @@ static SDValue combinePTESTCC(SDValue EFLAGS, X86::CondCode &CC,
     }
   }
 
-  // TODO: TESTZ(X,~Y) == TESTC(Y,X)
-
-  // TESTZ(X,-1) == TESTZ(X,X)
-  // TESTZ(-1,X) == TESTZ(X,X)
   if (CC == X86::COND_E || CC == X86::COND_NE) {
+    // TESTZ(X,~Y) == TESTC(Y,X)
+    if (SDValue NotOp1 = IsNOT(Op1, DAG)) {
+      CC = (CC == X86::COND_E ? X86::COND_B : X86::COND_AE);
+      return DAG.getNode(EFLAGS.getOpcode(), SDLoc(EFLAGS), VT,
+                         DAG.getBitcast(OpVT, NotOp1), Op0);
+    }
+
+    // TESTZ(-1,X) == TESTZ(X,X)
     if (ISD::isBuildVectorAllOnes(Op0.getNode()))
       return DAG.getNode(EFLAGS.getOpcode(), SDLoc(EFLAGS), VT, Op1, Op1);
+
+    // TESTZ(X,-1) == TESTZ(X,X)
     if (ISD::isBuildVectorAllOnes(Op1.getNode()))
       return DAG.getNode(EFLAGS.getOpcode(), SDLoc(EFLAGS), VT, Op0, Op0);
   }
@@ -44756,7 +44762,7 @@ static SDValue combineExtSetcc(SDNode *N, SelectionDAG &DAG,
 
   // We can only do this if the vector size in 256 bits or less.
   unsigned Size = VT.getSizeInBits();
-  if (Size > 256)
+  if (Size > 256 && Subtarget.useAVX512Regs())
     return SDValue();
 
   // Don't fold if the condition code can't be handled by PCMPEQ/PCMPGT since
