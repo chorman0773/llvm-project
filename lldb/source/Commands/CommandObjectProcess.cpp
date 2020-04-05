@@ -348,11 +348,11 @@ public:
         match_info.SetNameMatchType(NameMatch::StartsWith);
       }
       platform_sp->FindProcesses(match_info, process_infos);
-      const size_t num_matches = process_infos.GetSize();
+      const size_t num_matches = process_infos.size();
       if (num_matches == 0)
         return;
       for (size_t i = 0; i < num_matches; ++i) {
-        request.AddCompletion(process_infos.GetProcessNameAtIndex(i));
+        request.AddCompletion(process_infos[i].GetNameAsStringRef());
       }
     }
 
@@ -1034,6 +1034,20 @@ public:
 
   ~CommandObjectProcessSignal() override = default;
 
+  void
+  HandleArgumentCompletion(CompletionRequest &request,
+                           OptionElementVector &opt_element_vector) override {
+    if (!m_exe_ctx.HasProcessScope() || request.GetCursorIndex() != 0)
+      return;
+
+    UnixSignalsSP signals = m_exe_ctx.GetProcessPtr()->GetUnixSignals();
+    int signo = signals->GetFirstSignalNumber();
+    while (signo != LLDB_INVALID_SIGNAL_NUMBER) {
+      request.AddCompletion(signals->GetSignalAsCString(signo), "");
+      signo = signals->GetNextSignalNumber(signo);
+    }
+  }
+
 protected:
   bool DoExecute(Args &command, CommandReturnObject &result) override {
     Process *process = m_exe_ctx.GetProcessPtr();
@@ -1283,7 +1297,7 @@ protected:
       }
 
       auto expected_crash_info =
-          platform_sp->FetchExtendedCrashInformation(process->GetTarget());
+          platform_sp->FetchExtendedCrashInformation(*process);
 
       if (!expected_crash_info) {
         result.AppendError(llvm::toString(expected_crash_info.takeError()));

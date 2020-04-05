@@ -33,10 +33,12 @@ namespace llvm {
       /// Bit scan reverse.
       BSR,
 
-      /// Double shift instructions. These correspond to
-      /// X86::SHLDxx and X86::SHRDxx instructions.
-      SHLD,
-      SHRD,
+      /// X86 funnel/double shift i16 instructions. These correspond to
+      /// X86::SHLDW and X86::SHRDW instructions which have different amt
+      /// modulo rules to generic funnel shifts.
+      /// NOTE: The operand order matches ISD::FSHL/FSHR not SHLD/SHRD.
+      FSHL,
+      FSHR,
 
       /// Bitwise logical AND of floating point values. This corresponds
       /// to X86::ANDPS or X86::ANDPD.
@@ -720,7 +722,10 @@ namespace llvm {
 
     /// If Op is a constant whose elements are all the same constant or
     /// undefined, return true and return the constant value in \p SplatVal.
-    bool isConstantSplat(SDValue Op, APInt &SplatVal);
+    /// If we have undef bits that don't cover an entire element, we treat these
+    /// as zero if AllowPartialUndefs is set, else we fail and return false.
+    bool isConstantSplat(SDValue Op, APInt &SplatVal,
+                         bool AllowPartialUndefs = true);
   } // end namespace X86
 
   //===--------------------------------------------------------------------===//
@@ -1207,8 +1212,10 @@ namespace llvm {
     /// offset as appropriate.
     Value *getSafeStackPointerLocation(IRBuilder<> &IRB) const override;
 
-    std::pair<SDValue, SDValue> BuildFILD(SDValue Op, EVT SrcVT, SDValue Chain,
-                                          SDValue StackSlot,
+    std::pair<SDValue, SDValue> BuildFILD(EVT DstVT, EVT SrcVT, const SDLoc &DL,
+                                          SDValue Chain, SDValue Pointer,
+                                          MachinePointerInfo PtrInfo,
+                                          Align Alignment,
                                           SelectionDAG &DAG) const;
 
     bool isNoopAddrSpaceCast(unsigned SrcAS, unsigned DestAS) const override;
@@ -1324,7 +1331,7 @@ namespace llvm {
 
     unsigned getAddressSpace(void) const;
 
-    SDValue FP_TO_INTHelper(SDValue Op, SelectionDAG &DAG, bool isSigned,
+    SDValue FP_TO_INTHelper(SDValue Op, SelectionDAG &DAG, bool IsSigned,
                             SDValue &Chain) const;
     SDValue LRINT_LLRINTHelper(SDNode *N, SelectionDAG &DAG) const;
 
@@ -1352,7 +1359,6 @@ namespace llvm {
     SDValue LowerFP_TO_INT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerLRINT_LLRINT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerSTRICT_FSETCC(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSETCCCARRY(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSELECT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerBRCOND(SDValue Op, SelectionDAG &DAG) const;
@@ -1417,7 +1423,7 @@ namespace llvm {
     const MCPhysReg *getScratchRegisters(CallingConv::ID CC) const override;
 
     TargetLoweringBase::AtomicExpansionKind
-    shouldExpandAtomicLoadInIR(LoadInst *SI) const override;
+    shouldExpandAtomicLoadInIR(LoadInst *LI) const override;
     bool shouldExpandAtomicStoreInIR(StoreInst *SI) const override;
     TargetLoweringBase::AtomicExpansionKind
     shouldExpandAtomicRMWInIR(AtomicRMWInst *AI) const override;
@@ -1468,8 +1474,8 @@ namespace llvm {
     MachineBasicBlock *EmitLoweredTLSCall(MachineInstr &MI,
                                           MachineBasicBlock *BB) const;
 
-    MachineBasicBlock *EmitLoweredRetpoline(MachineInstr &MI,
-                                            MachineBasicBlock *BB) const;
+    MachineBasicBlock *EmitLoweredIndirectThunk(MachineInstr &MI,
+                                                MachineBasicBlock *BB) const;
 
     MachineBasicBlock *emitEHSjLjSetJmp(MachineInstr &MI,
                                         MachineBasicBlock *MBB) const;
@@ -1496,15 +1502,15 @@ namespace llvm {
                               SDValue &X86CC) const;
 
     /// Check if replacement of SQRT with RSQRT should be disabled.
-    bool isFsqrtCheap(SDValue Operand, SelectionDAG &DAG) const override;
+    bool isFsqrtCheap(SDValue Op, SelectionDAG &DAG) const override;
 
     /// Use rsqrt* to speed up sqrt calculations.
-    SDValue getSqrtEstimate(SDValue Operand, SelectionDAG &DAG, int Enabled,
+    SDValue getSqrtEstimate(SDValue Op, SelectionDAG &DAG, int Enabled,
                             int &RefinementSteps, bool &UseOneConstNR,
                             bool Reciprocal) const override;
 
     /// Use rcp* to speed up fdiv calculations.
-    SDValue getRecipEstimate(SDValue Operand, SelectionDAG &DAG, int Enabled,
+    SDValue getRecipEstimate(SDValue Op, SelectionDAG &DAG, int Enabled,
                              int &RefinementSteps) const override;
 
     /// Reassociate floating point divisions into multiply by reciprocal.
@@ -1558,62 +1564,15 @@ namespace llvm {
   };
 
   /// Generate unpacklo/unpackhi shuffle mask.
-  template <typename T = int>
-  void createUnpackShuffleMask(MVT VT, SmallVectorImpl<T> &Mask, bool Lo,
-                               bool Unary) {
-    assert(Mask.empty() && "Expected an empty shuffle mask vector");
-    int NumElts = VT.getVectorNumElements();
-    int NumEltsInLane = 128 / VT.getScalarSizeInBits();
-    for (int i = 0; i < NumElts; ++i) {
-      unsigned LaneStart = (i / NumEltsInLane) * NumEltsInLane;
-      int Pos = (i % NumEltsInLane) / 2 + LaneStart;
-      Pos += (Unary ? 0 : NumElts * (i % 2));
-      Pos += (Lo ? 0 : NumEltsInLane / 2);
-      Mask.push_back(Pos);
-    }
-  }
+  void createUnpackShuffleMask(MVT VT, SmallVectorImpl<int> &Mask, bool Lo,
+                               bool Unary);
 
   /// Similar to unpacklo/unpackhi, but without the 128-bit lane limitation
   /// imposed by AVX and specific to the unary pattern. Example:
   /// v8iX Lo --> <0, 0, 1, 1, 2, 2, 3, 3>
   /// v8iX Hi --> <4, 4, 5, 5, 6, 6, 7, 7>
-  template <typename T = int>
-  void createSplat2ShuffleMask(MVT VT, SmallVectorImpl<T> &Mask, bool Lo) {
-    assert(Mask.empty() && "Expected an empty shuffle mask vector");
-    int NumElts = VT.getVectorNumElements();
-    for (int i = 0; i < NumElts; ++i) {
-      int Pos = i / 2;
-      Pos += (Lo ? 0 : NumElts / 2);
-      Mask.push_back(Pos);
-    }
-  }
+  void createSplat2ShuffleMask(MVT VT, SmallVectorImpl<int> &Mask, bool Lo);
 
-  /// Helper function to scale a shuffle or target shuffle mask, replacing each
-  /// mask index with the scaled sequential indices for an equivalent narrowed
-  /// mask. This is the reverse process to canWidenShuffleElements, but can
-  /// always succeed.
-  template <typename T>
-  void scaleShuffleMask(size_t Scale, ArrayRef<T> Mask,
-                        SmallVectorImpl<T> &ScaledMask) {
-    assert(0 < Scale && "Unexpected scaling factor");
-    size_t NumElts = Mask.size();
-    ScaledMask.assign(NumElts * Scale, -1);
-
-    for (size_t i = 0; i != NumElts; ++i) {
-      int M = Mask[i];
-
-      // Repeat sentinel values in every mask element.
-      if (M < 0) {
-        for (size_t s = 0; s != Scale; ++s)
-          ScaledMask[(Scale * i) + s] = M;
-        continue;
-      }
-
-      // Scale mask element and increment across each mask element.
-      for (size_t s = 0; s != Scale; ++s)
-        ScaledMask[(Scale * i) + s] = (Scale * M) + s;
-    }
-  }
 } // end namespace llvm
 
 #endif // LLVM_LIB_TARGET_X86_X86ISELLOWERING_H

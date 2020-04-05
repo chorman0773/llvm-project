@@ -17,6 +17,7 @@
 #include "Transport.h"
 #include "index/Background.h"
 #include "index/Serialization.h"
+#include "refactor/Rename.h"
 #include "clang/Basic/Version.h"
 #include "clang/Format/Format.h"
 #include "llvm/ADT/Optional.h"
@@ -276,6 +277,15 @@ opt<bool> CrossFileRename{
     desc("Enable cross-file rename feature. Note that this feature is "
          "experimental and may lead to broken code or incomplete rename "
          "results"),
+    init(false),
+    Hidden,
+};
+
+opt<bool> RecoveryAST{
+    "recovery-ast",
+    cat(Features),
+    desc("Preserve expressions in AST for broken code (C++ only). Note that "
+         "this feature is experimental and may lead to crashes"),
     init(false),
     Hidden,
 };
@@ -628,7 +638,7 @@ clangd accepts flags on the commandline, and in the CLANGD_FLAGS environment var
   }
   Opts.StaticIndex = StaticIdx.get();
   Opts.AsyncThreadsCount = WorkerThreadsCount;
-  Opts.CrossFileRename = CrossFileRename;
+  Opts.BuildRecoveryAST = RecoveryAST;
 
   clangd::CodeCompleteOptions CCOpts;
   CCOpts.IncludeIneligibleResults = IncludeIneligibleResults;
@@ -681,18 +691,42 @@ clangd accepts flags on the commandline, and in the CLANGD_FLAGS environment var
   std::unique_ptr<tidy::ClangTidyOptionsProvider>
       ClangTidyOptProvider; /*GUARDED_BY(ClangTidyOptMu)*/
   if (EnableClangTidy) {
-    auto OverrideClangTidyOptions = tidy::ClangTidyOptions::getDefaults();
-    OverrideClangTidyOptions.Checks = ClangTidyChecks;
+    auto EmptyDefaults = tidy::ClangTidyOptions::getDefaults();
+    EmptyDefaults.Checks.reset(); // So we can tell if checks were ever set.
+    tidy::ClangTidyOptions OverrideClangTidyOptions;
+    if (!ClangTidyChecks.empty())
+      OverrideClangTidyOptions.Checks = ClangTidyChecks;
     ClangTidyOptProvider = std::make_unique<tidy::FileOptionsProvider>(
         tidy::ClangTidyGlobalOptions(),
-        /* Default */ tidy::ClangTidyOptions::getDefaults(),
+        /* Default */ EmptyDefaults,
         /* Override */ OverrideClangTidyOptions, FSProvider.getFileSystem());
     Opts.GetClangTidyOptions = [&](llvm::vfs::FileSystem &,
                                    llvm::StringRef File) {
       // This function must be thread-safe and tidy option providers are not.
-      std::lock_guard<std::mutex> Lock(ClangTidyOptMu);
-      // FIXME: use the FS provided to the function.
-      return ClangTidyOptProvider->getOptions(File);
+      tidy::ClangTidyOptions Opts;
+      {
+        std::lock_guard<std::mutex> Lock(ClangTidyOptMu);
+        // FIXME: use the FS provided to the function.
+        Opts = ClangTidyOptProvider->getOptions(File);
+      }
+      if (!Opts.Checks) {
+        // If the user hasn't configured clang-tidy checks at all, including
+        // via .clang-tidy, give them a nice set of checks.
+        // (This should be what the "default" options does, but it isn't...)
+        //
+        // These default checks are chosen for:
+        //  - low false-positive rate
+        //  - providing a lot of value
+        //  - being reasonably efficient
+        Opts.Checks = llvm::join_items(
+            ",", "readability-misleading-indentation",
+            "readability-deleted-default", "bugprone-integer-division",
+            "bugprone-sizeof-expression", "bugprone-suspicious-missing-comma",
+            "bugprone-unused-raii", "bugprone-unused-return-value",
+            "misc-unused-using-decls", "misc-unused-alias-decls",
+            "misc-definitions-in-headers");
+      }
+      return Opts;
     };
   }
   Opts.SuggestMissingIncludes = SuggestMissingIncludes;
@@ -708,8 +742,13 @@ clangd accepts flags on the commandline, and in the CLANGD_FLAGS environment var
   llvm::Optional<OffsetEncoding> OffsetEncodingFromFlag;
   if (ForceOffsetEncoding != OffsetEncoding::UnsupportedEncoding)
     OffsetEncodingFromFlag = ForceOffsetEncoding;
+
+  clangd::RenameOptions RenameOpts;
+  // Shall we allow to customize the file limit?
+  RenameOpts.AllowCrossFile = CrossFileRename;
+
   ClangdLSPServer LSPServer(
-      *TransportLayer, FSProvider, CCOpts, CompileCommandsDirPath,
+      *TransportLayer, FSProvider, CCOpts, RenameOpts, CompileCommandsDirPath,
       /*UseDirBasedCDB=*/CompileArgsFrom == FilesystemCompileArgs,
       OffsetEncodingFromFlag, Opts);
   llvm::set_thread_name("clangd.main");

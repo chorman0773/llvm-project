@@ -38,9 +38,8 @@
 
 using namespace llvm;
 using namespace llvm::object;
-
-namespace lld {
-namespace coff {
+using namespace lld;
+using namespace lld::coff;
 
 // Creates an empty file to and returns a raw_fd_ostream to write to it.
 static std::unique_ptr<raw_fd_ostream> openFile(StringRef file) {
@@ -102,8 +101,9 @@ BitcodeCompiler::BitcodeCompiler() {
         std::string(config->thinLTOPrefixReplace.first),
         std::string(config->thinLTOPrefixReplace.second),
         config->thinLTOEmitImportsFiles, indexFile.get(), OnIndexWrite);
-  } else if (config->thinLTOJobs != 0) {
-    backend = lto::createInProcessThinBackend(config->thinLTOJobs);
+  } else {
+    backend = lto::createInProcessThinBackend(
+        llvm::heavyweight_hardware_concurrency(config->thinLTOJobs));
   }
 
   ltoObj = std::make_unique<lto::LTO>(createConfig(), backend,
@@ -207,6 +207,3 @@ std::vector<StringRef> BitcodeCompiler::compile() {
 
   return ret;
 }
-
-} // namespace coff
-} // namespace lld

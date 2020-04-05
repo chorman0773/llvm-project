@@ -15,6 +15,7 @@
 namespace mlir {
 class FuncOp;
 template <typename T> class OpPassBase;
+class Pass;
 
 /// Create a pass that converts loop nests into GPU kernels.  It considers
 /// top-level affine.for and linalg.for operations as roots of loop nests and
@@ -26,6 +27,7 @@ template <typename T> class OpPassBase;
 /// calling the conversion.
 std::unique_ptr<OpPassBase<FuncOp>>
 createSimpleLoopsToGPUPass(unsigned numBlockDims, unsigned numThreadDims);
+std::unique_ptr<OpPassBase<FuncOp>> createSimpleLoopsToGPUPass();
 
 /// Create a pass that converts every loop operation within the body of the
 /// FuncOp into a GPU launch. The number of workgroups and workgroup size for
@@ -36,6 +38,14 @@ createSimpleLoopsToGPUPass(unsigned numBlockDims, unsigned numThreadDims);
 std::unique_ptr<OpPassBase<FuncOp>>
 createLoopToGPUPass(ArrayRef<int64_t> numWorkGroups,
                     ArrayRef<int64_t> workGroupSize);
+std::unique_ptr<OpPassBase<FuncOp>> createLoopToGPUPass();
+
+/// Creates a pass that converts loop.parallel operations into a gpu.launch
+/// operation. The mapping of loop dimensions to launch dimensions is derived
+/// from mapping attributes. See ParallelToGpuLaunchLowering::matchAndRewrite
+/// for a description of the used attributes.
+std::unique_ptr<Pass> createParallelLoopToGpuPass();
+
 } // namespace mlir
 
 #endif // MLIR_CONVERSION_LOOPSTOGPU_LOOPSTOGPUPASS_H_

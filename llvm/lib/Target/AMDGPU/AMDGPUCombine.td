@@ -20,13 +20,25 @@ def fcmp_select_to_fmin_fmax_legacy : GICombineRule<
   (apply [{ applySelectFCmpToFMinToFMaxLegacy(*${select}, ${matchinfo}); }])>;
 
 
+def uchar_to_float : GICombineRule<
+  (defs root:$itofp),
+  (match (wip_match_opcode G_UITOFP, G_SITOFP):$itofp,
+         [{ return matchUCharToFloat(*${itofp}, MRI, *MF, Helper); }]),
+  (apply [{ applyUCharToFloat(*${itofp}); }])>;
+
+
 // Combines which should only apply on SI/VI
 def gfx6gfx7_combines : GICombineGroup<[fcmp_select_to_fmin_fmax_legacy]>;
 
 
 def AMDGPUPreLegalizerCombinerHelper: GICombinerHelper<
   "AMDGPUGenPreLegalizerCombinerHelper", [all_combines,
-                                          elide_br_by_inverting_cond,
-                                          gfx6gfx7_combines]> {
+                                          elide_br_by_inverting_cond]> {
   let DisableRuleOption = "amdgpuprelegalizercombiner-disable-rule";
+}
+
+def AMDGPUPostLegalizerCombinerHelper: GICombinerHelper<
+  "AMDGPUGenPostLegalizerCombinerHelper", [all_combines,
+                                           gfx6gfx7_combines, uchar_to_float]> {
+  let DisableRuleOption = "amdgpupostlegalizercombiner-disable-rule";
 }
