@@ -18,5 +18,5 @@ tablegen(LLVM MipsGenExegesis.inc -gen-exegesis)]]
 
 #[[add_public_tablegen_target(MipsCommonTableGen)]]
 
-add_llvm_target(wc65c816)
+add_llvm_target(wc65c816 wc65c816InstrInfo.cpp wc65c816TargetMachine.cpp)
 

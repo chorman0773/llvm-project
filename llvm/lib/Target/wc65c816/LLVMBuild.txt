@@ -1,0 +1,19 @@
+
+[common]
+
+
+[component_0]
+type = TargetGroup
+name = wc65c816
+parent = Target
+has_asmparser = 0
+has_asmprinter = 0
+has_disassembler = 0
+
+[component_1]
+type = Library
+name = wc65c816CodeGen
+parent = wc65c816
+required_libraries = Analysis AsmPrinter Core CodeGen MC
+ SelectionDAG Support Target GlobalISel
+add_to_library_groups = wc65c816
