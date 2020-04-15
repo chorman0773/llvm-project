@@ -11,8 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Support/STLExtras.h"
-#include "mlir/Support/StringExtras.h"
 #include "mlir/TableGen/Attribute.h"
 #include "mlir/TableGen/Format.h"
 #include "mlir/TableGen/GenInfo.h"
@@ -617,7 +615,7 @@ static void emitDecorationSerialization(const Operator &op, StringRef tabs,
     os << tabs << formatv("for (auto attr : {0}.getAttrs()) {{\n", opVar);
     os << tabs
        << formatv("  if (llvm::any_of({0}, [&](StringRef elided)", elidedAttrs);
-    os << " {return attr.first.is(elided);})) {\n";
+    os << " {return attr.first == elided;})) {\n";
     os << tabs << "    continue;\n";
     os << tabs << "  }\n";
     os << tabs
@@ -1105,13 +1103,6 @@ static void emitEnumGetAttrNameFnDecl(raw_ostream &os) {
                 "attributeName();\n");
 }
 
-static void emitEnumGetSymbolizeFnDecl(raw_ostream &os) {
-  os << "template <typename EnumClass> using SymbolizeFnTy = "
-        "llvm::Optional<EnumClass> (*)(StringRef);\n";
-  os << "template <typename EnumClass> inline constexpr "
-        "SymbolizeFnTy<EnumClass> symbolizeEnum();\n";
-}
-
 static void emitEnumGetAttrNameFnDefn(const EnumAttr &enumAttr,
                                       raw_ostream &os) {
   auto enumName = enumAttr.getEnumClassName();
@@ -1119,19 +1110,8 @@ static void emitEnumGetAttrNameFnDefn(const EnumAttr &enumAttr,
                 enumName);
   os << "  "
      << formatv("static constexpr const char attrName[] = \"{0}\";\n",
-                mlir::convertToSnakeCase(enumName));
+                llvm::convertToSnakeFromCamelCase(enumName));
   os << "  return attrName;\n";
-  os << "}\n";
-}
-
-static void emitEnumGetSymbolizeFnDefn(const EnumAttr &enumAttr,
-                                       raw_ostream &os) {
-  auto enumName = enumAttr.getEnumClassName();
-  auto strToSymFnName = enumAttr.getStringToSymbolFnName();
-  os << formatv(
-      "template <> inline SymbolizeFnTy<{0}> symbolizeEnum<{0}>() {{\n",
-      enumName);
-  os << "  return " << strToSymFnName << ";\n";
   os << "}\n";
 }
 
@@ -1142,11 +1122,9 @@ static bool emitOpUtils(const RecordKeeper &recordKeeper, raw_ostream &os) {
   os << "#ifndef SPIRV_OP_UTILS_H_\n";
   os << "#define SPIRV_OP_UTILS_H_\n";
   emitEnumGetAttrNameFnDecl(os);
-  emitEnumGetSymbolizeFnDecl(os);
   for (const auto *def : defs) {
     EnumAttr enumAttr(*def);
     emitEnumGetAttrNameFnDefn(enumAttr, os);
-    emitEnumGetSymbolizeFnDefn(enumAttr, os);
   }
   os << "#endif // SPIRV_OP_UTILS_H\n";
   return false;
@@ -1325,7 +1303,7 @@ static bool emitCapabilityImplication(const RecordKeeper &recordKeeper,
     os << "  case Capability::" << enumerant.getSymbol()
        << ": {static const Capability implies[" << impliedCapsDefs.size()
        << "] = {";
-    mlir::interleaveComma(impliedCapsDefs, os, [&](const Record *capDef) {
+    llvm::interleaveComma(impliedCapsDefs, os, [&](const Record *capDef) {
       os << "Capability::" << EnumAttrCase(capDef).getSymbol();
     });
     os << "}; return ArrayRef<Capability>(implies, " << impliedCapsDefs.size()

@@ -617,6 +617,7 @@ public:
     VPWidenMemoryInstructionSC,
     VPWidenPHISC,
     VPWidenSC,
+    VPWidenSelectSC
   };
 
   VPRecipeBase(const unsigned char SC) : SubclassID(SC) {}
@@ -813,6 +814,38 @@ public:
              VPSlotTracker &SlotTracker) const override;
 };
 
+/// A recipe for widening select instructions.
+class VPWidenSelectRecipe : public VPRecipeBase {
+private:
+  /// Hold the select to be widened.
+  SelectInst &Ingredient;
+
+  /// Is the condition of the select loop invariant?
+  bool InvariantCond;
+
+  /// Hold VPValues for the arguments of the call.
+  VPUser User;
+
+public:
+  VPWidenSelectRecipe(SelectInst &I, bool InvariantCond)
+      : VPRecipeBase(VPWidenSelectSC), Ingredient(I),
+        InvariantCond(InvariantCond) {}
+
+  ~VPWidenSelectRecipe() override = default;
+
+  /// Method to support type inquiry through isa, cast, and dyn_cast.
+  static inline bool classof(const VPRecipeBase *V) {
+    return V->getVPRecipeID() == VPRecipeBase::VPWidenSelectSC;
+  }
+
+  /// Produce a widened version of the select instruction.
+  void execute(VPTransformState &State) override;
+
+  /// Print the recipe.
+  void print(raw_ostream &O, const Twine &Indent,
+             VPSlotTracker &SlotTracker) const override;
+};
+
 /// A recipe for handling GEP instructions.
 class VPWidenGEPRecipe : public VPRecipeBase {
   GetElementPtrInst *GEP;
@@ -896,16 +929,16 @@ class VPBlendRecipe : public VPRecipeBase {
 
   /// The blend operation is a User of the incoming values and of their
   /// respective masks, ordered [I0, M0, I1, M1, ...]. Note that a single value
-  /// would be incoming with a full mask for which there is no VPValue.
+  /// might be incoming with a full mask for which there is no VPValue.
   VPUser User;
 
 public:
   VPBlendRecipe(PHINode *Phi, ArrayRef<VPValue *> Operands)
       : VPRecipeBase(VPBlendSC), Phi(Phi), User(Operands) {
-    assert(((Operands.size() == 1) ||
-            (Operands.size() > 2 && Operands.size() % 2 == 0)) &&
-           "Expected either a single incoming value or a greater than two and "
-           "even number of operands");
+    assert(Operands.size() > 0 &&
+           ((Operands.size() == 1) || (Operands.size() % 2 == 0)) &&
+           "Expected either a single incoming value or a positive even number "
+           "of operands");
   }
 
   /// Method to support type inquiry through isa, cast, and dyn_cast.

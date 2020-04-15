@@ -22,19 +22,22 @@ class CxxStandardLibraryTest(lit.formats.TestFormat):
     FOO.pass.cpp            - Compiles, links and runs successfully
     FOO.pass.mm             - Same as .pass.cpp, but for Objective-C++
     FOO.run.fail.cpp        - Compiles and links successfully, but fails at runtime
+
     FOO.compile.pass.cpp    - Compiles successfully, link and run not attempted
-    FOO.compile.fail.cpp    - Does not compile successfully. These tests run with
-                              clang-verify.
+    FOO.compile.fail.cpp    - Does not compile successfully
+
     FOO.link.pass.cpp       - Compiles and links successfully, run not attempted
     FOO.link.fail.cpp       - Compiles successfully, but fails to link
+
     FOO.sh.cpp              - A builtin lit Shell test
     FOO.sh.s                - A builtin lit Shell test
+
+    FOO.verify.cpp          - Compiles with clang-verify
 
     FOO.fail.cpp            - Does not compile successfully -- run with clang-verify
                               if any expected-meow appears in the file, otherwise
                               just test that compilation fails. This is supported
                               only for backwards compatibility with the test suite
-    FOO.fail.mm             - Same as .fail.cpp, but for Objective-C++
 
     The test format operates by assuming that each test's configuration provides
     the following substitutions, which it will reuse in the shell scripts it
@@ -75,7 +78,7 @@ class CxxStandardLibraryTest(lit.formats.TestFormat):
 
     Design note:
     This test format never implicitly disables a type of test. For example,
-    we could be tempted to automatically mark `.compile.fail.cpp` tests as
+    we could be tempted to automatically mark `.verify.cpp` tests as
     UNSUPPORTED when clang-verify isn't supported by the compiler. However,
     this sort of logic has been known to cause tests to be ignored in the
     past, so we favour having tests mark themselves as unsupported explicitly.
@@ -84,12 +87,12 @@ class CxxStandardLibraryTest(lit.formats.TestFormat):
         - It is unknown how well it works on Windows yet.
     """
     def getTestsInDirectory(self, testSuite, pathInSuite, litConfig, localConfig):
-        SUPPORTED_SUFFIXES = ['.pass.cpp', '.run.fail.cpp',
-                              '.pass.mm',
+        SUPPORTED_SUFFIXES = ['.pass.cpp', '.pass.mm', '.run.fail.cpp',
                               '.compile.pass.cpp', '.compile.fail.cpp',
                               '.link.pass.cpp', '.link.fail.cpp',
                               '.sh.cpp', '.sh.s',
-                              '.fail.cpp', '.fail.mm']
+                              '.verify.cpp',
+                              '.fail.cpp']
         sourcePath = testSuite.getSourcePath(pathInSuite)
         for filename in os.listdir(sourcePath):
             # Ignore dot files and excluded tests.
@@ -154,7 +157,7 @@ class CxxStandardLibraryTest(lit.formats.TestFormat):
             return self._executeShTest(test, litConfig, steps)
         elif filename.endswith('.compile.fail.cpp'):
             steps = [
-                "%dbg(COMPILED WITH) %{cxx} %s %{flags} %{compile_flags} -fsyntax-only " + VERIFY_FLAGS
+                "%dbg(COMPILED WITH) ! %{cxx} %s %{flags} %{compile_flags} -fsyntax-only"
             ]
             return self._executeShTest(test, litConfig, steps)
         elif filename.endswith('.link.pass.cpp'):
@@ -174,6 +177,11 @@ class CxxStandardLibraryTest(lit.formats.TestFormat):
                 "%dbg(EXECUTED AS) %{exec} ! %t.exe"
             ]
             return self._executeShTest(test, litConfig, steps, fileDependencies=['%t.exe'])
+        elif filename.endswith('.verify.cpp'):
+            steps = [
+                "%dbg(COMPILED WITH) %{cxx} %s %{flags} %{compile_flags} -fsyntax-only " + VERIFY_FLAGS
+            ]
+            return self._executeShTest(test, litConfig, steps)
         # Make sure to check these ones last, since they will match other
         # suffixes above too.
         elif filename.endswith('.pass.cpp') or filename.endswith('.pass.mm'):
@@ -182,9 +190,10 @@ class CxxStandardLibraryTest(lit.formats.TestFormat):
                 "%dbg(EXECUTED AS) %{exec} %t.exe"
             ]
             return self._executeShTest(test, litConfig, steps, fileDependencies=['%t.exe'])
-        # This is the same as .compile.fail.cpp, provided for backwards
-        # compatibility with the test suite.
-        elif filename.endswith('.fail.cpp') or filename.endswith('.fail.mm'):
+        # This is like a .verify.cpp test when clang-verify is supported,
+        # otherwise it's like a .compile.fail.cpp test. This is only provided
+        # for backwards compatibility with the test suite.
+        elif filename.endswith('.fail.cpp'):
             if self._useVerify(test, litConfig):
                 steps = [
                     "%dbg(COMPILED WITH) %{cxx} %s %{flags} %{compile_flags} -fsyntax-only " + VERIFY_FLAGS
