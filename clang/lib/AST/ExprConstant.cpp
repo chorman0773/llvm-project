@@ -13523,7 +13523,6 @@ public:
 
     case Builtin::BI__builtin_operator_delete:
       return HandleOperatorDeleteCall(Info, E);
-
     default:
       break;
     }
