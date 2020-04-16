@@ -139,8 +139,8 @@ void AppleDWARFIndex::GetTypes(const DWARFDeclContext &context,
     if (!has_qualified_name_hash && (context.GetSize() > 1) &&
         (context[1].tag == DW_TAG_class_type ||
          context[1].tag == DW_TAG_structure_type)) {
-      if (!m_apple_types_up->FindByName(context[1].name,
-                                        [&](DIERef ref) { return false; }))
+      if (m_apple_types_up->FindByName(context[1].name,
+                                       [&](DIERef ref) { return false; }))
         return;
     }
 
