@@ -312,7 +312,7 @@ enum {
   EM_LANAI = 244,         // Lanai 32-bit processor
   EM_BPF = 247,           // Linux kernel bpf virtual machine
   EM_VE = 251,            // NEC SX-Aurora VE
-  EM_65816 = 301,         // 65816/65c816 (tentative)
+  EM_wc65c816 = 301,         // 65816/65c816 (tentative)
 };
 
 // Object file classes.
