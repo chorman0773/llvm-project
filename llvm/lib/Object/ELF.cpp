@@ -152,6 +152,10 @@ StringRef llvm::object::getELFRelocationTypeName(uint32_t Machine,
       break;
     }
     break;
+      case ELF::EM_wc65c816:
+      switch(Type){
+#include "llvm/BinaryFormat/ELFRelocs/wc65c816.def"
+      }
   default:
     break;
   }
@@ -198,6 +202,8 @@ uint32_t llvm::object::getELFRelativeRelocationType(uint32_t Machine) {
     break;
   case ELF::EM_BPF:
     break;
+  case ELF::EM_wc65c816:
+    return ELF::R_WC65816_REL16;
   default:
     break;
   }
