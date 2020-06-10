@@ -82,6 +82,8 @@ namespace lld{
                 case R_WC65816_LONG:
                 case R_WC65816_BANK:
                     return RelExpr::R_ABS;
+                default:
+                    llvm_unreachable("Unknown or invalid 65816 Relocation type");
             }
         }
 
@@ -90,5 +92,5 @@ namespace lld{
             return &tinfo;
         }
     } // namespace elf
-}; // namespace lld
+} // namespace lld
 
