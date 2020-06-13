@@ -44,9 +44,10 @@
 #include "llvm/IR/IntrinsicsWebAssembly.h"
 #include "llvm/IR/IntrinsicsX86.h"
 #include "llvm/IR/MDBuilder.h"
+#include "llvm/IR/MatrixBuilder.h"
 #include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/ScopedPrinter.h"
-#include "llvm/Support/TargetParser.h"
+#include "llvm/Support/X86TargetParser.h"
 #include <sstream>
 
 using namespace clang;
@@ -75,6 +76,8 @@ static void initializeAlloca(CodeGenFunction &CGF, AllocaInst *AI, Value *Size,
     break;
   }
   }
+  if (CGF.CGM.stopAutoInit())
+    return;
   CGF.Builder.CreateMemSet(AI, Byte, Size, AlignmentInBytes);
 }
 
@@ -2373,6 +2376,15 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
     return RValue::get(Builder.CreateZExt(V, ConvertType(E->getType())));
   }
 
+  case Builtin::BI__builtin_matrix_transpose: {
+    const auto *MatrixTy = E->getArg(0)->getType()->getAs<ConstantMatrixType>();
+    Value *MatValue = EmitScalarExpr(E->getArg(0));
+    MatrixBuilder<CGBuilderTy> MB(Builder);
+    Value *Result = MB.CreateMatrixTranspose(MatValue, MatrixTy->getNumRows(),
+                                             MatrixTy->getNumColumns());
+    return RValue::get(Result);
+  }
+
   case Builtin::BIfinite:
   case Builtin::BI__finite:
   case Builtin::BIfinitef:
@@ -4480,8 +4492,9 @@ Value *CodeGenFunction::EmitTargetBuiltinExpr(unsigned BuiltinID,
 
 static llvm::VectorType *GetNeonType(CodeGenFunction *CGF,
                                      NeonTypeFlags TypeFlags,
-                                     bool HasLegalHalfType=true,
-                                     bool V1Ty=false) {
+                                     bool HasLegalHalfType = true,
+                                     bool V1Ty = false,
+                                     bool AllowBFloatArgsAndRet = true) {
   int IsQuad = TypeFlags.isQuad();
   switch (TypeFlags.getEltType()) {
   case NeonTypeFlags::Int8:
@@ -4490,6 +4503,11 @@ static llvm::VectorType *GetNeonType(CodeGenFunction *CGF,
   case NeonTypeFlags::Int16:
   case NeonTypeFlags::Poly16:
     return llvm::FixedVectorType::get(CGF->Int16Ty, V1Ty ? 1 : (4 << IsQuad));
+  case NeonTypeFlags::BFloat16:
+    if (AllowBFloatArgsAndRet)
+      return llvm::FixedVectorType::get(CGF->BFloatTy, V1Ty ? 1 : (4 << IsQuad));
+    else
+      return llvm::FixedVectorType::get(CGF->Int16Ty, V1Ty ? 1 : (4 << IsQuad));
   case NeonTypeFlags::Float16:
     if (HasLegalHalfType)
       return llvm::FixedVectorType::get(CGF->HalfTy, V1Ty ? 1 : (4 << IsQuad));
@@ -5505,8 +5523,11 @@ Value *CodeGenFunction::EmitCommonNeonBuiltinExpr(
   bool Usgn = Type.isUnsigned();
   bool Quad = Type.isQuad();
   const bool HasLegalHalfType = getTarget().hasLegalHalfType();
+  const bool AllowBFloatArgsAndRet =
+      getTargetHooks().getABIInfo().allowBFloatArgsAndRet();
 
-  llvm::VectorType *VTy = GetNeonType(this, Type, HasLegalHalfType);
+  llvm::VectorType *VTy = GetNeonType(this, Type, HasLegalHalfType, false,
+                                      AllowBFloatArgsAndRet);
   llvm::Type *Ty = VTy;
   if (!Ty)
     return nullptr;
@@ -6975,7 +6996,9 @@ Value *CodeGenFunction::EmitARMBuiltinExpr(unsigned BuiltinID,
   bool rightShift = false;
 
   llvm::VectorType *VTy = GetNeonType(this, Type,
-                                      getTarget().hasLegalHalfType());
+                                      getTarget().hasLegalHalfType(),
+                                      false,
+                                      getTarget().hasBFloat16Type());
   llvm::Type *Ty = VTy;
   if (!Ty)
     return nullptr;
@@ -9357,10 +9380,12 @@ Value *CodeGenFunction::EmitAArch64BuiltinExpr(unsigned BuiltinID,
                           : Intrinsic::aarch64_neon_sqsub;
     return EmitNeonCall(CGM.getIntrinsic(AccInt, Int64Ty), Ops, "vqdmlXl");
   }
+  case NEON::BI__builtin_neon_vduph_lane_bf16:
   case NEON::BI__builtin_neon_vduph_lane_f16: {
     return Builder.CreateExtractElement(Ops[0], EmitScalarExpr(E->getArg(1)),
                                         "vget_lane");
   }
+  case NEON::BI__builtin_neon_vduph_laneq_bf16:
   case NEON::BI__builtin_neon_vduph_laneq_f16: {
     return Builder.CreateExtractElement(Ops[0], EmitScalarExpr(E->getArg(1)),
                                         "vgetq_lane");
@@ -14276,8 +14301,49 @@ Value *EmitAMDGPUWorkGroupSize(CodeGenFunction &CGF, unsigned Index) {
 }
 } // namespace
 
+// For processing memory ordering and memory scope arguments of various
+// amdgcn builtins.
+// \p Order takes a C++11 comptabile memory-ordering specifier and converts
+// it into LLVM's memory ordering specifier using atomic C ABI, and writes
+// to \p AO. \p Scope takes a const char * and converts it into AMDGCN
+// specific SyncScopeID and writes it to \p SSID.
+bool CodeGenFunction::ProcessOrderScopeAMDGCN(Value *Order, Value *Scope,
+                                              llvm::AtomicOrdering &AO,
+                                              llvm::SyncScope::ID &SSID) {
+  if (isa<llvm::ConstantInt>(Order)) {
+    int ord = cast<llvm::ConstantInt>(Order)->getZExtValue();
+
+    // Map C11/C++11 memory ordering to LLVM memory ordering
+    switch (static_cast<llvm::AtomicOrderingCABI>(ord)) {
+    case llvm::AtomicOrderingCABI::acquire:
+      AO = llvm::AtomicOrdering::Acquire;
+      break;
+    case llvm::AtomicOrderingCABI::release:
+      AO = llvm::AtomicOrdering::Release;
+      break;
+    case llvm::AtomicOrderingCABI::acq_rel:
+      AO = llvm::AtomicOrdering::AcquireRelease;
+      break;
+    case llvm::AtomicOrderingCABI::seq_cst:
+      AO = llvm::AtomicOrdering::SequentiallyConsistent;
+      break;
+    case llvm::AtomicOrderingCABI::consume:
+    case llvm::AtomicOrderingCABI::relaxed:
+      break;
+    }
+
+    StringRef scp;
+    llvm::getConstantStringInfo(Scope, scp);
+    SSID = getLLVMContext().getOrInsertSyncScopeID(scp);
+    return true;
+  }
+  return false;
+}
+
 Value *CodeGenFunction::EmitAMDGPUBuiltinExpr(unsigned BuiltinID,
                                               const CallExpr *E) {
+  llvm::AtomicOrdering AO = llvm::AtomicOrdering::SequentiallyConsistent;
+  llvm::SyncScope::ID SSID;
   switch (BuiltinID) {
   case AMDGPU::BI__builtin_amdgcn_div_scale:
   case AMDGPU::BI__builtin_amdgcn_div_scalef: {
@@ -14482,38 +14548,49 @@ Value *CodeGenFunction::EmitAMDGPUBuiltinExpr(unsigned BuiltinID,
   }
 
   case AMDGPU::BI__builtin_amdgcn_fence: {
-    llvm::AtomicOrdering AO = llvm::AtomicOrdering::SequentiallyConsistent;
-    llvm::SyncScope::ID SSID;
-    Value *Order = EmitScalarExpr(E->getArg(0));
-    Value *Scope = EmitScalarExpr(E->getArg(1));
-
-    if (isa<llvm::ConstantInt>(Order)) {
-      int ord = cast<llvm::ConstantInt>(Order)->getZExtValue();
-
-      // Map C11/C++11 memory ordering to LLVM memory ordering
-      switch (static_cast<llvm::AtomicOrderingCABI>(ord)) {
-      case llvm::AtomicOrderingCABI::acquire:
-        AO = llvm::AtomicOrdering::Acquire;
-        break;
-      case llvm::AtomicOrderingCABI::release:
-        AO = llvm::AtomicOrdering::Release;
-        break;
-      case llvm::AtomicOrderingCABI::acq_rel:
-        AO = llvm::AtomicOrdering::AcquireRelease;
-        break;
-      case llvm::AtomicOrderingCABI::seq_cst:
-        AO = llvm::AtomicOrdering::SequentiallyConsistent;
-        break;
-      case llvm::AtomicOrderingCABI::consume: // not supported by LLVM fence
-      case llvm::AtomicOrderingCABI::relaxed: // not supported by LLVM fence
-        break;
-      }
-
-      StringRef scp;
-      llvm::getConstantStringInfo(Scope, scp);
-      SSID = getLLVMContext().getOrInsertSyncScopeID(scp);
-
+    if (ProcessOrderScopeAMDGCN(EmitScalarExpr(E->getArg(0)),
+                                EmitScalarExpr(E->getArg(1)), AO, SSID))
       return Builder.CreateFence(AO, SSID);
+    LLVM_FALLTHROUGH;
+  }
+  case AMDGPU::BI__builtin_amdgcn_atomic_inc32:
+  case AMDGPU::BI__builtin_amdgcn_atomic_inc64:
+  case AMDGPU::BI__builtin_amdgcn_atomic_dec32:
+  case AMDGPU::BI__builtin_amdgcn_atomic_dec64: {
+    unsigned BuiltinAtomicOp;
+    llvm::Type *ResultType = ConvertType(E->getType());
+
+    switch (BuiltinID) {
+    case AMDGPU::BI__builtin_amdgcn_atomic_inc32:
+    case AMDGPU::BI__builtin_amdgcn_atomic_inc64:
+      BuiltinAtomicOp = Intrinsic::amdgcn_atomic_inc;
+      break;
+    case AMDGPU::BI__builtin_amdgcn_atomic_dec32:
+    case AMDGPU::BI__builtin_amdgcn_atomic_dec64:
+      BuiltinAtomicOp = Intrinsic::amdgcn_atomic_dec;
+      break;
+    }
+
+    Value *Ptr = EmitScalarExpr(E->getArg(0));
+    Value *Val = EmitScalarExpr(E->getArg(1));
+
+    llvm::Function *F =
+        CGM.getIntrinsic(BuiltinAtomicOp, {ResultType, Ptr->getType()});
+
+    if (ProcessOrderScopeAMDGCN(EmitScalarExpr(E->getArg(2)),
+                                EmitScalarExpr(E->getArg(3)), AO, SSID)) {
+
+      // llvm.amdgcn.atomic.inc and llvm.amdgcn.atomic.dec expects ordering and
+      // scope as unsigned values
+      Value *MemOrder = Builder.getInt32(static_cast<int>(AO));
+      Value *MemScope = Builder.getInt32(static_cast<int>(SSID));
+
+      QualType PtrTy = E->getArg(0)->IgnoreImpCasts()->getType();
+      bool Volatile =
+          PtrTy->castAs<PointerType>()->getPointeeType().isVolatileQualified();
+      Value *IsVolatile = Builder.getInt1(static_cast<bool>(Volatile));
+
+      return Builder.CreateCall(F, {Ptr, Val, MemOrder, MemScope, IsVolatile});
     }
     LLVM_FALLTHROUGH;
   }
@@ -15873,6 +15950,39 @@ Value *CodeGenFunction::EmitWebAssemblyBuiltinExpr(unsigned BuiltinID,
     Function *Callee =
         CGM.getIntrinsic(Intrinsic::wasm_pmax, ConvertType(E->getType()));
     return Builder.CreateCall(Callee, {LHS, RHS});
+  }
+  case WebAssembly::BI__builtin_wasm_ceil_f32x4:
+  case WebAssembly::BI__builtin_wasm_floor_f32x4:
+  case WebAssembly::BI__builtin_wasm_trunc_f32x4:
+  case WebAssembly::BI__builtin_wasm_nearest_f32x4:
+  case WebAssembly::BI__builtin_wasm_ceil_f64x2:
+  case WebAssembly::BI__builtin_wasm_floor_f64x2:
+  case WebAssembly::BI__builtin_wasm_trunc_f64x2:
+  case WebAssembly::BI__builtin_wasm_nearest_f64x2: {
+    unsigned IntNo;
+    switch (BuiltinID) {
+    case WebAssembly::BI__builtin_wasm_ceil_f32x4:
+    case WebAssembly::BI__builtin_wasm_ceil_f64x2:
+      IntNo = Intrinsic::wasm_ceil;
+      break;
+    case WebAssembly::BI__builtin_wasm_floor_f32x4:
+    case WebAssembly::BI__builtin_wasm_floor_f64x2:
+      IntNo = Intrinsic::wasm_floor;
+      break;
+    case WebAssembly::BI__builtin_wasm_trunc_f32x4:
+    case WebAssembly::BI__builtin_wasm_trunc_f64x2:
+      IntNo = Intrinsic::wasm_trunc;
+      break;
+    case WebAssembly::BI__builtin_wasm_nearest_f32x4:
+    case WebAssembly::BI__builtin_wasm_nearest_f64x2:
+      IntNo = Intrinsic::wasm_nearest;
+      break;
+    default:
+      llvm_unreachable("unexpected builtin ID");
+    }
+    Value *Value = EmitScalarExpr(E->getArg(0));
+    Function *Callee = CGM.getIntrinsic(IntNo, ConvertType(E->getType()));
+    return Builder.CreateCall(Callee, Value);
   }
   case WebAssembly::BI__builtin_wasm_swizzle_v8x16: {
     Value *Src = EmitScalarExpr(E->getArg(0));

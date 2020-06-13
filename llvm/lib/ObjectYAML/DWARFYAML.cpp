@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ObjectYAML/DWARFYAML.h"
+#include "llvm/BinaryFormat/Dwarf.h"
 
 namespace llvm {
 
@@ -27,6 +28,10 @@ SetVector<StringRef> DWARFYAML::Data::getUsedSectionNames() const {
     SecNames.insert("debug_str");
   if (!ARanges.empty())
     SecNames.insert("debug_aranges");
+  if (!DebugRanges.empty())
+    SecNames.insert("debug_ranges");
+  if (!DebugLines.empty())
+    SecNames.insert("debug_line");
   return SecNames;
 }
 
@@ -74,6 +79,7 @@ void MappingTraits<DWARFYAML::ARangeDescriptor>::mapping(
 
 void MappingTraits<DWARFYAML::ARange>::mapping(IO &IO,
                                                DWARFYAML::ARange &ARange) {
+  IO.mapOptional("Format", ARange.Format, dwarf::DWARF32);
   IO.mapRequired("Length", ARange.Length);
   IO.mapRequired("Version", ARange.Version);
   IO.mapRequired("CuOffset", ARange.CuOffset);
@@ -90,7 +96,7 @@ void MappingTraits<DWARFYAML::RangeEntry>::mapping(
 
 void MappingTraits<DWARFYAML::Ranges>::mapping(IO &IO,
                                                DWARFYAML::Ranges &DebugRanges) {
-  IO.mapRequired("Offset", DebugRanges.Offset);
+  IO.mapOptional("Offset", DebugRanges.Offset);
   IO.mapRequired("AddrSize", DebugRanges.AddrSize);
   IO.mapRequired("Entries", DebugRanges.Entries);
 }
