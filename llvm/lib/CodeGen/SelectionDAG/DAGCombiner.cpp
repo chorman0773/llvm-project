@@ -322,16 +322,26 @@ namespace {
     }
 
     bool SimplifyDemandedBits(SDValue Op, const APInt &DemandedBits) {
-      EVT VT = Op.getValueType();
-      unsigned NumElts = VT.isVector() ? VT.getVectorNumElements() : 1;
-      APInt DemandedElts = APInt::getAllOnesValue(NumElts);
-      return SimplifyDemandedBits(Op, DemandedBits, DemandedElts);
+      TargetLowering::TargetLoweringOpt TLO(DAG, LegalTypes, LegalOperations);
+      KnownBits Known;
+      if (!TLI.SimplifyDemandedBits(Op, DemandedBits, Known, TLO, 0, false))
+        return false;
+
+      // Revisit the node.
+      AddToWorklist(Op.getNode());
+
+      CommitTargetLoweringOpt(TLO);
+      return true;
     }
 
     /// Check the specified vector node value to see if it can be simplified or
     /// if things it uses can be simplified as it only uses some of the
     /// elements. If so, return true.
     bool SimplifyDemandedVectorElts(SDValue Op) {
+      // TODO: For now just pretend it cannot be simplified.
+      if (Op.getValueType().isScalableVector())
+        return false;
+
       unsigned NumElts = Op.getValueType().getVectorNumElements();
       APInt DemandedElts = APInt::getAllOnesValue(NumElts);
       return SimplifyDemandedVectorElts(Op, DemandedElts);
@@ -13032,7 +13042,7 @@ SDValue DAGCombiner::combineRepeatedFPDivisors(SDNode *N) {
   //       that only minsize should restrict this.
   bool UnsafeMath = DAG.getTarget().Options.UnsafeFPMath;
   const SDNodeFlags Flags = N->getFlags();
-  if (!UnsafeMath && !Flags.hasAllowReciprocal())
+  if (LegalDAG || (!UnsafeMath && !Flags.hasAllowReciprocal()))
     return SDValue();
 
   // Skip if current node is a reciprocal/fneg-reciprocal.
@@ -13186,8 +13196,9 @@ SDValue DAGCombiner::visitFDIV(SDNode *N) {
     }
 
     // Fold into a reciprocal estimate and multiply instead of a real divide.
-    if (SDValue RV = BuildDivEstimate(N0, N1, Flags))
-      return RV;
+    if (Options.NoInfsFPMath || Flags.hasNoInfs())
+      if (SDValue RV = BuildDivEstimate(N0, N1, Flags))
+        return RV;
   }
 
   // (fdiv (fneg X), (fneg Y)) -> (fdiv X, Y)

@@ -1687,12 +1687,13 @@ void ASTStmtReader::VisitCXXTemporaryObjectExpr(CXXTemporaryObjectExpr *E) {
 void ASTStmtReader::VisitLambdaExpr(LambdaExpr *E) {
   VisitExpr(E);
   unsigned NumCaptures = Record.readInt();
-  assert(NumCaptures == E->NumCaptures);(void)NumCaptures;
+  (void)NumCaptures;
+  assert(NumCaptures == E->LambdaExprBits.NumCaptures);
   E->IntroducerRange = readSourceRange();
-  E->CaptureDefault = static_cast<LambdaCaptureDefault>(Record.readInt());
+  E->LambdaExprBits.CaptureDefault = Record.readInt();
   E->CaptureDefaultLoc = readSourceLocation();
-  E->ExplicitParams = Record.readInt();
-  E->ExplicitResultType = Record.readInt();
+  E->LambdaExprBits.ExplicitParams = Record.readInt();
+  E->LambdaExprBits.ExplicitResultType = Record.readInt();
   E->ClosingBrace = readSourceLocation();
 
   // Read capture initializers.
@@ -1700,6 +1701,9 @@ void ASTStmtReader::VisitLambdaExpr(LambdaExpr *E) {
                                       CEnd = E->capture_init_end();
        C != CEnd; ++C)
     *C = Record.readSubExpr();
+
+  // Ok, not one past the end.
+  E->getStoredStmts()[NumCaptures] = Record.readSubStmt();
 }
 
 void

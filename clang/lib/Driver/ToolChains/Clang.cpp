@@ -4679,7 +4679,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fforbid-guard-variables");
 
   if (Args.hasFlag(options::OPT_mms_bitfields, options::OPT_mno_ms_bitfields,
-                   false)) {
+                   Triple.isWindowsGNUEnvironment())) {
     CmdArgs.push_back("-mms-bitfields");
   }
 
@@ -5498,7 +5498,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // -fuse-cxa-atexit is default.
   if (!Args.hasFlag(
           options::OPT_fuse_cxa_atexit, options::OPT_fno_use_cxa_atexit,
-          !RawTriple.isOSWindows() &&
+          !RawTriple.isOSAIX() && !RawTriple.isOSWindows() &&
               TC.getArch() != llvm::Triple::xcore &&
               ((RawTriple.getVendor() != llvm::Triple::MipsTechnologies) ||
                RawTriple.hasEnvironment())) ||
