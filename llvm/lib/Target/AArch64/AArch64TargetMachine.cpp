@@ -11,6 +11,7 @@
 
 #include "AArch64TargetMachine.h"
 #include "AArch64.h"
+#include "AArch64MachineFunctionInfo.h"
 #include "AArch64MacroFusion.h"
 #include "AArch64Subtarget.h"
 #include "AArch64TargetObjectFile.h"
@@ -26,6 +27,7 @@
 #include "llvm/CodeGen/GlobalISel/Legalizer.h"
 #include "llvm/CodeGen/GlobalISel/Localizer.h"
 #include "llvm/CodeGen/GlobalISel/RegBankSelect.h"
+#include "llvm/CodeGen/MIRParser/MIParser.h"
 #include "llvm/CodeGen/MachineScheduler.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
@@ -181,6 +183,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAArch64Target() {
   initializeAArch64LoadStoreOptPass(*PR);
   initializeAArch64SIMDInstrOptPass(*PR);
   initializeAArch64PreLegalizerCombinerPass(*PR);
+  initializeAArch64PostLegalizerCombinerPass(*PR);
   initializeAArch64PromoteConstantPass(*PR);
   initializeAArch64RedundantCopyEliminationPass(*PR);
   initializeAArch64StorePairSuppressPass(*PR);
@@ -189,6 +192,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAArch64Target() {
   initializeLDTLSCleanupPass(*PR);
   initializeSVEIntrinsicOptsPass(*PR);
   initializeAArch64SpeculationHardeningPass(*PR);
+  initializeAArch64SLSHardeningPass(*PR);
   initializeAArch64StackTaggingPass(*PR);
   initializeAArch64StackTaggingPreRAPass(*PR);
 }
@@ -408,6 +412,7 @@ public:
   bool addIRTranslator() override;
   void addPreLegalizeMachineIR() override;
   bool addLegalizeMachineIR() override;
+  void addPreRegBankSelect() override;
   bool addRegBankSelect() override;
   void addPreGlobalInstructionSelect() override;
   bool addGlobalInstructionSelect() override;
@@ -463,6 +468,9 @@ void AArch64PassConfig::addIRPasses() {
 
   TargetPassConfig::addIRPasses();
 
+  addPass(createAArch64StackTaggingPass(
+      /*IsOptNone=*/TM->getOptLevel() == CodeGenOpt::None));
+
   // Match interleaved memory accesses to ldN/stN intrinsics.
   if (TM->getOptLevel() != CodeGenOpt::None) {
     addPass(createInterleavedLoadCombinePass());
@@ -481,9 +489,6 @@ void AArch64PassConfig::addIRPasses() {
     // invariant.
     addPass(createLICMPass());
   }
-
-  addPass(createAArch64StackTaggingPass(/* MergeInit = */ TM->getOptLevel() !=
-                                        CodeGenOpt::None));
 
   // Add Control Flow Guard checks.
   if (TM->getTargetTriple().isOSWindows())
@@ -548,6 +553,14 @@ void AArch64PassConfig::addPreLegalizeMachineIR() {
 bool AArch64PassConfig::addLegalizeMachineIR() {
   addPass(new Legalizer());
   return false;
+}
+
+void AArch64PassConfig::addPreRegBankSelect() {
+  // For now we don't add this to the pipeline for -O0. We could do in future
+  // if we split the combines into separate O0/opt groupings.
+  bool IsOptNone = getOptLevel() == CodeGenOpt::None;
+  if (!IsOptNone)
+    addPass(createAArch64PostLegalizeCombiner(IsOptNone));
 }
 
 bool AArch64PassConfig::addRegBankSelect() {
@@ -623,6 +636,9 @@ void AArch64PassConfig::addPreSched2() {
   // info.
   addPass(createAArch64SpeculationHardeningPass());
 
+  addPass(createAArch64IndirectThunks());
+  addPass(createAArch64SLSHardeningPass());
+
   if (TM->getOptLevel() != CodeGenOpt::None) {
     if (EnableFalkorHWPFFix)
       addPass(createFalkorHWPFFixPass());
@@ -660,4 +676,25 @@ void AArch64PassConfig::addPreEmitPass() {
 
   // SVE bundles move prefixes with destructive operations.
   addPass(createUnpackMachineBundles(nullptr));
+}
+
+yaml::MachineFunctionInfo *
+AArch64TargetMachine::createDefaultFuncInfoYAML() const {
+  return new yaml::AArch64FunctionInfo();
+}
+
+yaml::MachineFunctionInfo *
+AArch64TargetMachine::convertFuncInfoToYAML(const MachineFunction &MF) const {
+  const auto *MFI = MF.getInfo<AArch64FunctionInfo>();
+  return new yaml::AArch64FunctionInfo(*MFI);
+}
+
+bool AArch64TargetMachine::parseMachineFunctionInfo(
+    const yaml::MachineFunctionInfo &MFI, PerFunctionMIParsingState &PFS,
+    SMDiagnostic &Error, SMRange &SourceRange) const {
+  const auto &YamlMFI =
+      reinterpret_cast<const yaml::AArch64FunctionInfo &>(MFI);
+  MachineFunction &MF = PFS.MF;
+  MF.getInfo<AArch64FunctionInfo>()->initializeBaseYamlFields(YamlMFI);
+  return false;
 }

@@ -167,12 +167,33 @@ TestDialect::verifyRegionResultAttribute(Operation *op, unsigned regionIndex,
 // TestBranchOp
 //===----------------------------------------------------------------------===//
 
-Optional<OperandRange> TestBranchOp::getSuccessorOperands(unsigned index) {
+Optional<MutableOperandRange>
+TestBranchOp::getMutableSuccessorOperands(unsigned index) {
   assert(index == 0 && "invalid successor index");
-  return getOperands();
+  return targetOperandsMutable();
 }
 
-bool TestBranchOp::canEraseSuccessorOperand() { return true; }
+//===----------------------------------------------------------------------===//
+// TestFoldToCallOp
+//===----------------------------------------------------------------------===//
+
+namespace {
+struct FoldToCallOpPattern : public OpRewritePattern<FoldToCallOp> {
+  using OpRewritePattern<FoldToCallOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(FoldToCallOp op,
+                                PatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<CallOp>(op, ArrayRef<Type>(), op.calleeAttr(),
+                                        ValueRange());
+    return success();
+  }
+};
+} // end anonymous namespace
+
+void FoldToCallOp::getCanonicalizationPatterns(
+    OwningRewritePatternList &results, MLIRContext *context) {
+  results.insert<FoldToCallOpPattern>(context);
+}
 
 //===----------------------------------------------------------------------===//
 // Test IsolatedRegionOp - parse passthrough region arguments.
@@ -198,6 +219,22 @@ static void print(OpAsmPrinter &p, IsolatedRegionOp op) {
   p << "test.isolated_region ";
   p.printOperand(op.getOperand());
   p.shadowRegionArgs(op.region(), op.getOperand());
+  p.printRegion(op.region(), /*printEntryBlockArgs=*/false);
+}
+
+//===----------------------------------------------------------------------===//
+// Test AffineScopeOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseAffineScopeOp(OpAsmParser &parser,
+                                      OperationState &result) {
+  // Parse the body region, and reuse the operand info as the argument info.
+  Region *body = result.addRegion();
+  return parser.parseRegion(*body, /*arguments=*/{}, /*argTypes=*/{});
+}
+
+static void print(OpAsmPrinter &p, AffineScopeOp op) {
+  p << "test.affine_scope ";
   p.printRegion(op.region(), /*printEntryBlockArgs=*/false);
 }
 
@@ -308,9 +345,18 @@ LogicalResult TestOpWithVariadicResultsAndFolder::fold(
   return success();
 }
 
+OpFoldResult TestOpInPlaceFold::fold(ArrayRef<Attribute> operands) {
+  assert(operands.size() == 1);
+  if (operands.front()) {
+    setAttr("attr", operands.front());
+    return getResult();
+  }
+  return {};
+}
+
 LogicalResult mlir::OpWithInferTypeInterfaceOp::inferReturnTypes(
     MLIRContext *, Optional<Location> location, ValueRange operands,
-    ArrayRef<NamedAttribute> attributes, RegionRange regions,
+    DictionaryAttr attributes, RegionRange regions,
     SmallVectorImpl<Type> &inferredReturnTypes) {
   if (operands[0].getType() != operands[1].getType()) {
     return emitOptionalError(location, "operand type mismatch ",
@@ -323,7 +369,7 @@ LogicalResult mlir::OpWithInferTypeInterfaceOp::inferReturnTypes(
 
 LogicalResult OpWithShapedTypeInferTypeInterfaceOp::inferReturnTypeComponents(
     MLIRContext *context, Optional<Location> location, ValueRange operands,
-    ArrayRef<NamedAttribute> attributes, RegionRange regions,
+    DictionaryAttr attributes, RegionRange regions,
     SmallVectorImpl<ShapedTypeComponents> &inferredReturnShapes) {
   // Create return type consisting of the last element of the first operand.
   auto operandType = *operands.getTypes().begin();
@@ -480,6 +526,7 @@ void StringAttrPrettyNameOp::getAsmResultNames(
 static mlir::DialectRegistration<mlir::TestDialect> testDialect;
 
 #include "TestOpEnums.cpp.inc"
+#include "TestOpStructs.cpp.inc"
 
 #define GET_OP_CLASSES
 #include "TestOps.cpp.inc"

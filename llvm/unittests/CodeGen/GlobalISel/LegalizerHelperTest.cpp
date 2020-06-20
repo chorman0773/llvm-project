@@ -176,6 +176,8 @@ TEST_F(AArch64GISelMITest, LowerBitCountingCTTZ2) {
   AInfo Info(MF->getSubtarget());
   DummyGISelObserver Observer;
   LegalizerHelper Helper(*MF, Info, Observer, B);
+
+  B.setInsertPt(*EntryMBB, MIBCTTZ->getIterator());
   EXPECT_TRUE(Helper.lower(*MIBCTTZ, 0, LLT::scalar(64)) ==
               LegalizerHelper::LegalizeResult::Legalized);
 
@@ -2311,7 +2313,7 @@ TEST_F(AArch64GISelMITest, NarrowScalarExtract) {
   // Declare your legalization info
   DefineLegalizerInfo(A, {
     getActionDefinitionsBuilder(G_UNMERGE_VALUES).legalFor({{s32, s64}});
-    getActionDefinitionsBuilder(G_EXTRACT).legalFor({{s16, s32}});
+    getActionDefinitionsBuilder(G_EXTRACT).legalForTypeWithAnyImm({{s16, s32}});
   });
 
   LLT S16{LLT::scalar(16)};
@@ -2583,6 +2585,7 @@ TEST_F(AArch64GISelMITest, BitcastLoad) {
 
   AInfo Info(MF->getSubtarget());
   DummyGISelObserver Observer;
+  B.setInsertPt(*EntryMBB, Load->getIterator());
   LegalizerHelper Helper(*MF, Info, Observer, B);
   EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
             Helper.bitcast(*Load, 0, S32));
@@ -2618,6 +2621,7 @@ TEST_F(AArch64GISelMITest, BitcastStore) {
   AInfo Info(MF->getSubtarget());
   DummyGISelObserver Observer;
   LegalizerHelper Helper(*MF, Info, Observer, B);
+  B.setInsertPt(*EntryMBB, Store->getIterator());
   EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
             Helper.bitcast(*Store, 0, S32));
 
@@ -2651,6 +2655,7 @@ TEST_F(AArch64GISelMITest, BitcastSelect) {
   AInfo Info(MF->getSubtarget());
   DummyGISelObserver Observer;
   LegalizerHelper Helper(*MF, Info, Observer, B);
+  B.setInsertPt(*EntryMBB, Select->getIterator());
   EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
             Helper.bitcast(*Select, 0, S32));
 
@@ -2669,6 +2674,8 @@ TEST_F(AArch64GISelMITest, BitcastSelect) {
   // Doesn't make sense
   auto VCond = B.buildUndef(LLT::vector(4, 1));
   auto VSelect = B.buildSelect(V4S8, VCond, Val0, Val1);
+
+  B.setInsertPt(*EntryMBB, VSelect->getIterator());
   EXPECT_EQ(LegalizerHelper::LegalizeResult::UnableToLegalize,
             Helper.bitcast(*VSelect, 0, S32));
   EXPECT_EQ(LegalizerHelper::LegalizeResult::UnableToLegalize,
@@ -2694,10 +2701,15 @@ TEST_F(AArch64GISelMITest, BitcastBitOps) {
   AInfo Info(MF->getSubtarget());
   DummyGISelObserver Observer;
   LegalizerHelper Helper(*MF, Info, Observer, B);
+  B.setInsertPt(*EntryMBB, And->getIterator());
   EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
             Helper.bitcast(*And, 0, S32));
+
+  B.setInsertPt(*EntryMBB, Or->getIterator());
   EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
             Helper.bitcast(*Or, 0, S32));
+
+  B.setInsertPt(*EntryMBB, Xor->getIterator());
   EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
             Helper.bitcast(*Xor, 0, S32));
 
@@ -2773,12 +2785,20 @@ TEST_F(AArch64GISelMITest, NarrowImplicitDef) {
   LegalizerHelper Helper(*MF, Info, Observer, B);
 
   // Perform Legalization
+
+  B.setInsertPt(*EntryMBB, Implicit1->getIterator());
   EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
             Helper.narrowScalar(*Implicit1, 0, S48));
+
+  B.setInsertPt(*EntryMBB, Implicit2->getIterator());
   EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
             Helper.narrowScalar(*Implicit2, 0, S32));
+
+  B.setInsertPt(*EntryMBB, Implicit3->getIterator());
   EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
             Helper.narrowScalar(*Implicit3, 0, S48));
+
+  B.setInsertPt(*EntryMBB, Implicit4->getIterator());
   EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
             Helper.narrowScalar(*Implicit4, 0, S32));
 
@@ -2798,6 +2818,234 @@ TEST_F(AArch64GISelMITest, NarrowImplicitDef) {
   CHECK: [[DEF2:%[0-9]+]]:_(s32) = G_IMPLICIT_DEF
   CHECK: [[DEF3:%[0-9]+]]:_(s32) = G_IMPLICIT_DEF
   CHECK: [[BV:%[0-9]+]]:_(<2 x s64>) = G_BUILD_VECTOR [[DEF]]:_(s32), [[DEF1]]:_(s32), [[DEF2]]:_(s32), [[DEF3]]:_(s32)
+  )";
+
+  // Check
+  EXPECT_TRUE(CheckMachineFunction(*MF, CheckStr)) << *MF;
+}
+
+// Test widening of G_FREEZE
+TEST_F(AArch64GISelMITest, WidenFreeze) {
+  setUp();
+  if (!TM)
+    return;
+
+  DefineLegalizerInfo(A, {});
+
+  // Make sure that G_FREEZE is widened with anyext
+  LLT S64{LLT::scalar(64)};
+  LLT S128{LLT::scalar(128)};
+  LLT V2S32{LLT::vector(2, 32)};
+  LLT V2S64{LLT::vector(2, 64)};
+
+  auto Vector = B.buildBitcast(V2S32, Copies[0]);
+
+  auto FreezeScalar = B.buildInstr(TargetOpcode::G_FREEZE, {S64}, {Copies[0]});
+  auto FreezeVector = B.buildInstr(TargetOpcode::G_FREEZE, {V2S32}, {Vector});
+
+  AInfo Info(MF->getSubtarget());
+  DummyGISelObserver Observer;
+  LegalizerHelper Helper(*MF, Info, Observer, B);
+
+  // Perform Legalization
+
+  B.setInsertPt(*EntryMBB, FreezeScalar->getIterator());
+  EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
+            Helper.widenScalar(*FreezeScalar, 0, S128));
+
+  B.setInsertPt(*EntryMBB, FreezeVector->getIterator());
+  EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
+            Helper.widenScalar(*FreezeVector, 0, V2S64));
+
+  const auto *CheckStr = R"(
+  CHECK: [[COPY:%[0-9]+]]:_(s64) = COPY
+  CHECK: [[BITCAST:%[0-9]+]]:_(<2 x s32>) = G_BITCAST [[COPY]]
+
+  CHECK: [[ANYEXT:%[0-9]+]]:_(s128) = G_ANYEXT [[COPY]]
+  CHECK: [[FREEZE:%[0-9]+]]:_(s128) = G_FREEZE [[ANYEXT]]
+  CHECK: [[TRUNC:%[0-9]+]]:_(s64) = G_TRUNC [[FREEZE]]
+
+  CHECK: [[ANYEXT1:%[0-9]+]]:_(<2 x s64>) = G_ANYEXT [[BITCAST]]
+  CHECK: [[FREEZE1:%[0-9]+]]:_(<2 x s64>) = G_FREEZE [[ANYEXT1]]
+  CHECK: [[TRUNC1:%[0-9]+]]:_(<2 x s32>) = G_TRUNC [[FREEZE1]]
+  )";
+
+  // Check
+  EXPECT_TRUE(CheckMachineFunction(*MF, CheckStr)) << *MF;
+}
+
+// Test narrowing of G_FREEZE
+TEST_F(AArch64GISelMITest, NarrowFreeze) {
+  setUp();
+  if (!TM)
+    return;
+
+  DefineLegalizerInfo(A, {});
+
+  // Make sure that G_FREEZE is narrowed using unmerge/extract
+  LLT S16{LLT::scalar(16)};
+  LLT S32{LLT::scalar(32)};
+  LLT S33{LLT::scalar(33)};
+  LLT S64{LLT::scalar(64)};
+  LLT V2S16{LLT::vector(2, 16)};
+  LLT V2S32{LLT::vector(2, 32)};
+
+  auto Trunc = B.buildTrunc(S33, {Copies[0]});
+  auto Vector = B.buildBitcast(V2S32, Copies[0]);
+
+  auto FreezeScalar = B.buildInstr(TargetOpcode::G_FREEZE, {S64}, {Copies[0]});
+  auto FreezeOdd = B.buildInstr(TargetOpcode::G_FREEZE, {S33}, {Trunc});
+  auto FreezeVector = B.buildInstr(TargetOpcode::G_FREEZE, {V2S32}, {Vector});
+  auto FreezeVector1 = B.buildInstr(TargetOpcode::G_FREEZE, {V2S32}, {Vector});
+
+  AInfo Info(MF->getSubtarget());
+  DummyGISelObserver Observer;
+  LegalizerHelper Helper(*MF, Info, Observer, B);
+
+  // Perform Legalization
+
+  B.setInsertPt(*EntryMBB, FreezeScalar->getIterator());
+  EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
+            Helper.narrowScalar(*FreezeScalar, 0, S32));
+
+  B.setInsertPt(*EntryMBB, FreezeOdd->getIterator());
+  EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
+            Helper.narrowScalar(*FreezeOdd, 0, S32));
+
+  B.setInsertPt(*EntryMBB, FreezeVector->getIterator());
+  EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
+            Helper.narrowScalar(*FreezeVector, 0, V2S16));
+
+  B.setInsertPt(*EntryMBB, FreezeVector1->getIterator());
+  EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
+            Helper.narrowScalar(*FreezeVector1, 0, S16));
+
+  const auto *CheckStr = R"(
+  CHECK: [[COPY:%[0-9]+]]:_(s64) = COPY
+  CHECK: [[TRUNC:%[0-9]+]]:_(s33) = G_TRUNC [[COPY]]
+  CHECK: [[BITCAST:%[0-9]+]]:_(<2 x s32>) = G_BITCAST [[COPY]]
+
+  CHECK: [[UV:%[0-9]+]]:_(s32), [[UV1:%[0-9]+]]:_(s32) = G_UNMERGE_VALUES [[COPY]]
+  CHECK: [[FREEZE:%[0-9]+]]:_(s32) = G_FREEZE [[UV]]
+  CHECK: [[FREEZE1:%[0-9]+]]:_(s32) = G_FREEZE [[UV1]]
+  CHECK: [[MV:%[0-9]+]]:_(s64) = G_MERGE_VALUES [[FREEZE]]:_(s32), [[FREEZE1]]
+
+  CHECK: (s1) = G_UNMERGE_VALUES [[TRUNC]]:_(s33)
+  CHECK: [[UNDEF:%[0-9]+]]:_(s1) = G_IMPLICIT_DEF
+  CHECK: [[MV1:%[0-9]+]]:_(s32) = G_MERGE_VALUES
+  CHECK: [[MV2:%[0-9]+]]:_(s32) = G_MERGE_VALUES
+  CHECK: [[UNDEF1:%[0-9]+]]:_(s32) = G_IMPLICIT_DEF
+  CHECK: [[FREEZE2:%[0-9]+]]:_(s32) = G_FREEZE [[MV1]]
+  CHECK: [[FREEZE3:%[0-9]+]]:_(s32) = G_FREEZE [[MV2]]
+  CHECK: [[UNDEF2:%[0-9]+]]:_(s32) = G_IMPLICIT_DEF
+  CHECK: [[MV3:%[0-9]+]]:_(s1056) = G_MERGE_VALUES [[FREEZE2]]:_(s32), [[FREEZE3]]:_(s32), [[UNDEF2]]
+  CHECK: [[TRUNC1:%[0-9]+]]:_(s33) = G_TRUNC [[MV3]]
+
+  CHECK: [[BITCAST1:%[0-9]+]]:_(s64) = G_BITCAST [[BITCAST]]
+  CHECK: [[UV2:%[0-9]+]]:_(s32), [[UV3:%[0-9]+]]:_(s32) = G_UNMERGE_VALUES [[BITCAST1]]
+  CHECK: [[FREEZE4:%[0-9]+]]:_(s32) = G_FREEZE [[UV2]]
+  CHECK: [[FREEZE5:%[0-9]+]]:_(s32) = G_FREEZE [[UV3]]
+  CHECK: [[MV4:%[0-9]+]]:_(s64) = G_MERGE_VALUES [[FREEZE4]]:_(s32), [[FREEZE5]]:_(s32)
+  CHECK: [[BITCAST2:%[0-9]+]]:_(<2 x s32>) = G_BITCAST [[MV4]]
+
+  CHECK: [[BITCAST3:%[0-9]+]]:_(s64) = G_BITCAST [[BITCAST]]
+  CHECK: [[UV4:%[0-9]+]]:_(s16), [[UV5:%[0-9]+]]:_(s16), [[UV6:%[0-9]+]]:_(s16), [[UV7:%[0-9]+]]:_(s16) = G_UNMERGE_VALUES [[BITCAST3]]
+  CHECK: [[FREEZE6:%[0-9]+]]:_(s16) = G_FREEZE [[UV4]]
+  CHECK: [[FREEZE7:%[0-9]+]]:_(s16) = G_FREEZE [[UV5]]
+  CHECK: [[FREEZE8:%[0-9]+]]:_(s16) = G_FREEZE [[UV6]]
+  CHECK: [[FREEZE9:%[0-9]+]]:_(s16) = G_FREEZE [[UV7]]
+  CHECK: [[MV5:%[0-9]+]]:_(s64) = G_MERGE_VALUES [[FREEZE6]]:_(s16), [[FREEZE7]]:_(s16), [[FREEZE8]]:_(s16), [[FREEZE9]]
+  CHECK: [[BITCAST3:%[0-9]+]]:_(<2 x s32>) = G_BITCAST [[MV5]]
+  )";
+
+  // Check
+  EXPECT_TRUE(CheckMachineFunction(*MF, CheckStr)) << *MF;
+}
+
+// Test fewer elements of G_FREEZE
+TEST_F(AArch64GISelMITest, FewerElementsFreeze) {
+  setUp();
+  if (!TM)
+    return;
+
+  DefineLegalizerInfo(A, {});
+
+  LLT S32{LLT::scalar(32)};
+  LLT V2S16{LLT::vector(2, 16)};
+  LLT V2S32{LLT::vector(2, 32)};
+  LLT V4S16{LLT::vector(4, 16)};
+
+  auto Vector1 = B.buildBitcast(V2S32, Copies[0]);
+  auto Vector2 = B.buildBitcast(V4S16, Copies[0]);
+
+  auto FreezeVector1 = B.buildInstr(TargetOpcode::G_FREEZE, {V2S32}, {Vector1});
+  auto FreezeVector2 = B.buildInstr(TargetOpcode::G_FREEZE, {V4S16}, {Vector2});
+
+  AInfo Info(MF->getSubtarget());
+  DummyGISelObserver Observer;
+  LegalizerHelper Helper(*MF, Info, Observer, B);
+
+  // Perform Legalization
+
+  B.setInsertPt(*EntryMBB, FreezeVector1->getIterator());
+  EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
+            Helper.fewerElementsVector(*FreezeVector1, 0, S32));
+
+  B.setInsertPt(*EntryMBB, FreezeVector2->getIterator());
+  EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
+            Helper.fewerElementsVector(*FreezeVector2, 0, V2S16));
+
+  const auto *CheckStr = R"(
+  CHECK: [[COPY:%[0-9]+]]:_(s64) = COPY
+  CHECK: [[BITCAST:%[0-9]+]]:_(<2 x s32>) = G_BITCAST [[COPY]]
+  CHECK: [[BITCAST1:%[0-9]+]]:_(<4 x s16>) = G_BITCAST [[COPY]]
+
+  CHECK: [[UV:%[0-9]+]]:_(s32), [[UV1:%[0-9]+]]:_(s32) = G_UNMERGE_VALUES [[BITCAST]]
+  CHECK: [[FREEZE:%[0-9]+]]:_(s32) = G_FREEZE [[UV]]
+  CHECK: [[FREEZE1:%[0-9]+]]:_(s32) = G_FREEZE [[UV1]]
+  CHECK: [[MV:%[0-9]+]]:_(<2 x s32>) = G_BUILD_VECTOR [[FREEZE]]:_(s32), [[FREEZE1]]
+
+  CHECK: [[UV:%[0-9]+]]:_(<2 x s16>), [[UV1:%[0-9]+]]:_(<2 x s16>) = G_UNMERGE_VALUES [[BITCAST1]]
+  CHECK: [[FREEZE2:%[0-9]+]]:_(<2 x s16>) = G_FREEZE [[UV]]
+  CHECK: [[FREEZE3:%[0-9]+]]:_(<2 x s16>) = G_FREEZE [[UV1]]
+  CHECK: [[MV:%[0-9]+]]:_(<4 x s16>) = G_CONCAT_VECTORS [[FREEZE2]]:_(<2 x s16>), [[FREEZE3]]
+  )";
+
+  // Check
+  EXPECT_TRUE(CheckMachineFunction(*MF, CheckStr)) << *MF;
+}
+
+// Test more elements of G_FREEZE
+TEST_F(AArch64GISelMITest, MoreElementsFreeze) {
+  setUp();
+  if (!TM)
+    return;
+
+  DefineLegalizerInfo(A, {});
+
+  LLT V2S32{LLT::vector(2, 32)};
+  LLT V4S32{LLT::vector(4, 32)};
+
+  auto Vector1 = B.buildBitcast(V2S32, Copies[0]);
+  auto FreezeVector1 = B.buildInstr(TargetOpcode::G_FREEZE, {V2S32}, {Vector1});
+
+  AInfo Info(MF->getSubtarget());
+  DummyGISelObserver Observer;
+  LegalizerHelper Helper(*MF, Info, Observer, B);
+
+  // Perform Legalization
+  B.setInsertPt(*EntryMBB, FreezeVector1->getIterator());
+  EXPECT_EQ(LegalizerHelper::LegalizeResult::Legalized,
+            Helper.moreElementsVector(*FreezeVector1, 0, V4S32));
+
+  const auto *CheckStr = R"(
+  CHECK: [[COPY:%[0-9]+]]:_(s64) = COPY
+  CHECK: [[BITCAST:%[0-9]+]]:_(<2 x s32>) = G_BITCAST [[COPY]]
+
+  CHECK: [[UNDEF:%[0-9]+]]:_(<2 x s32>) = G_IMPLICIT_DEF
+  CHECK: [[CV:%[0-9]+]]:_(<4 x s32>) = G_CONCAT_VECTORS [[BITCAST]]:_(<2 x s32>), [[UNDEF]]
+  CHECK: [[FREEZE:%[0-9]+]]:_(<4 x s32>) = G_FREEZE [[CV]]
+  CHECK: [[EXTR:%[0-9]+]]:_(<2 x s32>) = G_EXTRACT [[FREEZE]]:_(<4 x s32>), 0
   )";
 
   // Check

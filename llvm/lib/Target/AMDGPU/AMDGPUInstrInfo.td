@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains DAG node defintions for the AMDGPU target.
+// This file contains DAG node definitions for the AMDGPU target.
 //
 //===----------------------------------------------------------------------===//
 
@@ -17,10 +17,6 @@
 def AMDGPUDTIntTernaryOp : SDTypeProfile<1, 3, [
   SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>, SDTCisInt<0>, SDTCisInt<3>
 ]>;
-
-def AMDGPUTrigPreOp : SDTypeProfile<1, 2,
-  [SDTCisSameAs<0, 1>, SDTCisFP<0>, SDTCisInt<2>]
->;
 
 def AMDGPULdExpOp : SDTypeProfile<1, 2,
   [SDTCisSameAs<0, 1>, SDTCisFP<0>, SDTCisInt<2>]
@@ -121,8 +117,6 @@ def AMDGPUrcp_impl : SDNode<"AMDGPUISD::RCP", SDTFPUnaryOp>;
 // out = 1.0 / sqrt(a)
 def AMDGPUrsq_impl : SDNode<"AMDGPUISD::RSQ", SDTFPUnaryOp>;
 
-// out = 1.0 / sqrt(a)
-def AMDGPUrsq_legacy_impl : SDNode<"AMDGPUISD::RSQ_LEGACY", SDTFPUnaryOp>;
 def AMDGPUrcp_legacy_impl : SDNode<"AMDGPUISD::RCP_LEGACY", SDTFPUnaryOp>;
 
 def AMDGPUrcp_iflag : SDNode<"AMDGPUISD::RCP_IFLAG", SDTFPUnaryOp>;
@@ -204,13 +198,6 @@ def AMDGPUSetCCOp : SDTypeProfile<1, 3, [        // setcc
 
 def AMDGPUsetcc : SDNode<"AMDGPUISD::SETCC", AMDGPUSetCCOp>;
 
-def AMDGPUSetRegOp :  SDTypeProfile<0, 2, [
-  SDTCisInt<0>, SDTCisInt<1>
-]>;
-
-def AMDGPUsetreg : SDNode<"AMDGPUISD::SETREG", AMDGPUSetRegOp, [
-  SDNPHasChain, SDNPSideEffect, SDNPOptInGlue, SDNPOutGlue]>;
-
 def AMDGPUfma : SDNode<"AMDGPUISD::FMA_W_CHAIN", SDTFPTernaryOp, [
    SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
 
@@ -247,9 +234,6 @@ def AMDGPUdiv_fmas_impl : SDNode<"AMDGPUISD::DIV_FMAS", AMDGPUFmasOp,
 def AMDGPUdiv_fixup_impl : SDNode<"AMDGPUISD::DIV_FIXUP", SDTFPTernaryOp>;
 
 def AMDGPUfmad_ftz_impl : SDNode<"AMDGPUISD::FMAD_FTZ", SDTFPTernaryOp>;
-
-// Look Up 2.0 / pi src0 with segment select src1[4:0]
-def AMDGPUtrig_preop : SDNode<"AMDGPUISD::TRIG_PREOP", AMDGPUTrigPreOp>;
 
 def AMDGPUregister_load : SDNode<"AMDGPUISD::REGISTER_LOAD",
                           SDTypeProfile<1, 2, [SDTCisPtrTy<1>, SDTCisInt<2>]>,
@@ -289,7 +273,7 @@ def AMDGPUffbh_i32_impl : SDNode<"AMDGPUISD::FFBH_I32", SDTIntBitCountUnaryOp>;
 def AMDGPUffbl_b32_impl : SDNode<"AMDGPUISD::FFBL_B32", SDTIntBitCountUnaryOp>;
 
 // Signed and unsigned 24-bit multiply. The highest 8-bits are ignore
-// when performing the mulitply. The result is a 32-bit value.
+// when performing the multiply. The result is a 32-bit value.
 def AMDGPUmul_u24_impl : SDNode<"AMDGPUISD::MUL_U24", SDTIntBinOp,
   [SDNPCommutative, SDNPAssociative]
 >;
@@ -377,16 +361,13 @@ def AMDGPUret_flag : SDNode<"AMDGPUISD::RET_FLAG", SDTypeProfile<0, 1, [SDTCisPt
 
 
 //===----------------------------------------------------------------------===//
-// Intrinsic/Custom node compatability PatFrags
+// Intrinsic/Custom node compatibility PatFrags
 //===----------------------------------------------------------------------===//
 
 def AMDGPUrcp : PatFrags<(ops node:$src), [(int_amdgcn_rcp node:$src),
                                            (AMDGPUrcp_impl node:$src)]>;
 def AMDGPUrcp_legacy : PatFrags<(ops node:$src), [(int_amdgcn_rcp_legacy node:$src),
                                                   (AMDGPUrcp_legacy_impl node:$src)]>;
-
-def AMDGPUrsq_legacy : PatFrags<(ops node:$src), [(int_amdgcn_rsq_legacy node:$src),
-                                                  (AMDGPUrsq_legacy_impl node:$src)]>;
 
 def AMDGPUrsq : PatFrags<(ops node:$src), [(int_amdgcn_rsq node:$src),
                                            (AMDGPUrsq_impl node:$src)]>;

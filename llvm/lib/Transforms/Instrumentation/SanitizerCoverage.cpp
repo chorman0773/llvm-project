@@ -16,7 +16,6 @@
 #include "llvm/Analysis/EHPersonalities.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/IR/CFG.h"
-#include "llvm/IR/CallSite.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DebugInfo.h"
@@ -201,10 +200,10 @@ class ModuleSanitizerCoverage {
 public:
   ModuleSanitizerCoverage(
       const SanitizerCoverageOptions &Options = SanitizerCoverageOptions(),
-      const SpecialCaseList *Whitelist = nullptr,
-      const SpecialCaseList *Blacklist = nullptr)
-      : Options(OverrideFromCL(Options)), Whitelist(Whitelist),
-        Blacklist(Blacklist) {}
+      const SpecialCaseList *Allowlist = nullptr,
+      const SpecialCaseList *Blocklist = nullptr)
+      : Options(OverrideFromCL(Options)), Allowlist(Allowlist),
+        Blocklist(Blocklist) {}
   bool instrumentModule(Module &M, DomTreeCallback DTCallback,
                         PostDomTreeCallback PDTCallback);
 
@@ -269,31 +268,31 @@ private:
 
   SanitizerCoverageOptions Options;
 
-  const SpecialCaseList *Whitelist;
-  const SpecialCaseList *Blacklist;
+  const SpecialCaseList *Allowlist;
+  const SpecialCaseList *Blocklist;
 };
 
 class ModuleSanitizerCoverageLegacyPass : public ModulePass {
 public:
   ModuleSanitizerCoverageLegacyPass(
       const SanitizerCoverageOptions &Options = SanitizerCoverageOptions(),
-      const std::vector<std::string> &WhitelistFiles =
+      const std::vector<std::string> &AllowlistFiles =
           std::vector<std::string>(),
-      const std::vector<std::string> &BlacklistFiles =
+      const std::vector<std::string> &BlocklistFiles =
           std::vector<std::string>())
       : ModulePass(ID), Options(Options) {
-    if (WhitelistFiles.size() > 0)
-      Whitelist = SpecialCaseList::createOrDie(WhitelistFiles,
+    if (AllowlistFiles.size() > 0)
+      Allowlist = SpecialCaseList::createOrDie(AllowlistFiles,
                                                *vfs::getRealFileSystem());
-    if (BlacklistFiles.size() > 0)
-      Blacklist = SpecialCaseList::createOrDie(BlacklistFiles,
+    if (BlocklistFiles.size() > 0)
+      Blocklist = SpecialCaseList::createOrDie(BlocklistFiles,
                                                *vfs::getRealFileSystem());
     initializeModuleSanitizerCoverageLegacyPassPass(
         *PassRegistry::getPassRegistry());
   }
   bool runOnModule(Module &M) override {
-    ModuleSanitizerCoverage ModuleSancov(Options, Whitelist.get(),
-                                         Blacklist.get());
+    ModuleSanitizerCoverage ModuleSancov(Options, Allowlist.get(),
+                                         Blocklist.get());
     auto DTCallback = [this](Function &F) -> const DominatorTree * {
       return &this->getAnalysis<DominatorTreeWrapperPass>(F).getDomTree();
     };
@@ -315,15 +314,16 @@ public:
 private:
   SanitizerCoverageOptions Options;
 
-  std::unique_ptr<SpecialCaseList> Whitelist;
-  std::unique_ptr<SpecialCaseList> Blacklist;
+  std::unique_ptr<SpecialCaseList> Allowlist;
+  std::unique_ptr<SpecialCaseList> Blocklist;
 };
 
 } // namespace
 
 PreservedAnalyses ModuleSanitizerCoveragePass::run(Module &M,
                                                    ModuleAnalysisManager &MAM) {
-  ModuleSanitizerCoverage ModuleSancov(Options);
+  ModuleSanitizerCoverage ModuleSancov(Options, Allowlist.get(),
+                                       Blocklist.get());
   auto &FAM = MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
   auto DTCallback = [&FAM](Function &F) -> const DominatorTree * {
     return &FAM.getResult<DominatorTreeAnalysis>(F);
@@ -396,11 +396,11 @@ bool ModuleSanitizerCoverage::instrumentModule(
     Module &M, DomTreeCallback DTCallback, PostDomTreeCallback PDTCallback) {
   if (Options.CoverageType == SanitizerCoverageOptions::SCK_None)
     return false;
-  if (Whitelist &&
-      !Whitelist->inSection("coverage", "src", M.getSourceFileName()))
+  if (Allowlist &&
+      !Allowlist->inSection("coverage", "src", M.getSourceFileName()))
     return false;
-  if (Blacklist &&
-      Blacklist->inSection("coverage", "src", M.getSourceFileName()))
+  if (Blocklist &&
+      Blocklist->inSection("coverage", "src", M.getSourceFileName()))
     return false;
   C = &(M.getContext());
   DL = &M.getDataLayout();
@@ -639,9 +639,9 @@ void ModuleSanitizerCoverage::instrumentFunction(
   if (F.hasPersonalityFn() &&
       isAsynchronousEHPersonality(classifyEHPersonality(F.getPersonalityFn())))
     return;
-  if (Whitelist && !Whitelist->inSection("coverage", "fun", F.getName()))
+  if (Allowlist && !Allowlist->inSection("coverage", "fun", F.getName()))
     return;
-  if (Blacklist && Blacklist->inSection("coverage", "fun", F.getName()))
+  if (Blocklist && Blocklist->inSection("coverage", "fun", F.getName()))
     return;
   if (Options.CoverageType >= SanitizerCoverageOptions::SCK_Edge)
     SplitAllCriticalEdges(F, CriticalEdgeSplittingOptions().setIgnoreUnreachableDests());
@@ -661,8 +661,8 @@ void ModuleSanitizerCoverage::instrumentFunction(
       BlocksToInstrument.push_back(&BB);
     for (auto &Inst : BB) {
       if (Options.IndirectCalls) {
-        CallSite CS(&Inst);
-        if (CS && !CS.getCalledFunction())
+        CallBase *CB = dyn_cast<CallBase>(&Inst);
+        if (CB && !CB->getCalledFunction())
           IndirCalls.push_back(&Inst);
       }
       if (Options.TraceCmp) {
@@ -786,8 +786,8 @@ void ModuleSanitizerCoverage::InjectCoverageForIndirectCalls(
          Options.Inline8bitCounters || Options.InlineBoolFlag);
   for (auto I : IndirCalls) {
     IRBuilder<> IRB(I);
-    CallSite CS(I);
-    Value *Callee = CS.getCalledValue();
+    CallBase &CB = cast<CallBase>(*I);
+    Value *Callee = CB.getCalledOperand();
     if (isa<InlineAsm>(Callee))
       continue;
     IRB.CreateCall(SanCovTracePCIndir, IRB.CreatePointerCast(Callee, IntptrTy));
@@ -946,7 +946,12 @@ void ModuleSanitizerCoverage::InjectCoverageAtBlock(Function &F, BasicBlock &BB,
     auto FlagPtr = IRB.CreateGEP(
         FunctionBoolArray->getValueType(), FunctionBoolArray,
         {ConstantInt::get(IntptrTy, 0), ConstantInt::get(IntptrTy, Idx)});
-    auto Store = IRB.CreateStore(ConstantInt::getTrue(Int1Ty), FlagPtr);
+    auto Load = IRB.CreateLoad(Int1Ty, FlagPtr);
+    auto ThenTerm =
+        SplitBlockAndInsertIfThen(IRB.CreateIsNull(Load), &*IP, false);
+    IRBuilder<> ThenIRB(ThenTerm);
+    auto Store = ThenIRB.CreateStore(ConstantInt::getTrue(Int1Ty), FlagPtr);
+    SetNoSanitizeMetadata(Load);
     SetNoSanitizeMetadata(Store);
   }
   if (Options.StackDepth && IsEntryBB && !IsLeafFunc) {
@@ -1009,8 +1014,8 @@ INITIALIZE_PASS_END(ModuleSanitizerCoverageLegacyPass, "sancov",
                     false)
 ModulePass *llvm::createModuleSanitizerCoverageLegacyPassPass(
     const SanitizerCoverageOptions &Options,
-    const std::vector<std::string> &WhitelistFiles,
-    const std::vector<std::string> &BlacklistFiles) {
-  return new ModuleSanitizerCoverageLegacyPass(Options, WhitelistFiles,
-                                               BlacklistFiles);
+    const std::vector<std::string> &AllowlistFiles,
+    const std::vector<std::string> &BlocklistFiles) {
+  return new ModuleSanitizerCoverageLegacyPass(Options, AllowlistFiles,
+                                               BlocklistFiles);
 }

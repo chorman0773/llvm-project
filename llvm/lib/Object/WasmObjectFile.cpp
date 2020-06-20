@@ -12,6 +12,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/BinaryFormat/Wasm.h"
 #include "llvm/MC/SubtargetFeature.h"
@@ -153,6 +154,10 @@ static uint32_t readVaruint32(WasmObjectFile::ReadContext &Ctx) {
 
 static int64_t readVarint64(WasmObjectFile::ReadContext &Ctx) {
   return readLEB128(Ctx);
+}
+
+static uint64_t readVaruint64(WasmObjectFile::ReadContext &Ctx) {
+  return readULEB128(Ctx);
 }
 
 static uint8_t readOpcode(WasmObjectFile::ReadContext &Ctx) {
@@ -557,12 +562,12 @@ Error WasmObjectFile::parseLinkingSectionSymtab(ReadContext &Ctx) {
     case wasm::WASM_SYMBOL_TYPE_DATA:
       Info.Name = readString(Ctx);
       if (IsDefined) {
-        uint32_t Index = readVaruint32(Ctx);
+        auto Index = readVaruint32(Ctx);
         if (Index >= DataSegments.size())
           return make_error<GenericBinaryError>("invalid data symbol index",
                                                 object_error::parse_failed);
-        uint32_t Offset = readVaruint32(Ctx);
-        uint32_t Size = readVaruint32(Ctx);
+        auto Offset = readVaruint64(Ctx);
+        auto Size = readVaruint64(Ctx);
         if (Offset + Size > DataSegments[Index].Data.Content.size())
           return make_error<GenericBinaryError>("invalid data symbol offset",
                                                 object_error::parse_failed);
@@ -798,6 +803,11 @@ Error WasmObjectFile::parseRelocSection(StringRef Name, ReadContext &Ctx) {
         return make_error<GenericBinaryError>("Bad relocation global index",
                                               object_error::parse_failed);
       break;
+    case wasm::R_WASM_GLOBAL_INDEX_I32:
+      if (!isValidGlobalSymbol(Reloc.Index))
+        return make_error<GenericBinaryError>("Bad relocation global index",
+                                              object_error::parse_failed);
+      break;
     case wasm::R_WASM_EVENT_INDEX_LEB:
       if (!isValidEventSymbol(Reloc.Index))
         return make_error<GenericBinaryError>("Bad relocation event index",
@@ -811,6 +821,15 @@ Error WasmObjectFile::parseRelocSection(StringRef Name, ReadContext &Ctx) {
         return make_error<GenericBinaryError>("Bad relocation data index",
                                               object_error::parse_failed);
       Reloc.Addend = readVarint32(Ctx);
+      break;
+    case wasm::R_WASM_MEMORY_ADDR_LEB64:
+    case wasm::R_WASM_MEMORY_ADDR_SLEB64:
+    case wasm::R_WASM_MEMORY_ADDR_I64:
+    case wasm::R_WASM_MEMORY_ADDR_REL_SLEB64:
+      if (!isValidDataSymbol(Reloc.Index))
+        return make_error<GenericBinaryError>("Bad relocation data index",
+                                              object_error::parse_failed);
+      Reloc.Addend = readVarint64(Ctx);
       break;
     case wasm::R_WASM_FUNCTION_OFFSET_I32:
       if (!isValidFunctionSymbol(Reloc.Index))
@@ -834,11 +853,18 @@ Error WasmObjectFile::parseRelocSection(StringRef Name, ReadContext &Ctx) {
     // also shouldn't overlap a function/element boundary, but we don't bother
     // to check that.
     uint64_t Size = 5;
+    if (Reloc.Type == wasm::R_WASM_MEMORY_ADDR_LEB64 ||
+        Reloc.Type == wasm::R_WASM_MEMORY_ADDR_SLEB64 ||
+        Reloc.Type == wasm::R_WASM_MEMORY_ADDR_REL_SLEB64)
+      Size = 10;
     if (Reloc.Type == wasm::R_WASM_TABLE_INDEX_I32 ||
         Reloc.Type == wasm::R_WASM_MEMORY_ADDR_I32 ||
         Reloc.Type == wasm::R_WASM_SECTION_OFFSET_I32 ||
-        Reloc.Type == wasm::R_WASM_FUNCTION_OFFSET_I32)
+        Reloc.Type == wasm::R_WASM_FUNCTION_OFFSET_I32 ||
+        Reloc.Type == wasm::R_WASM_GLOBAL_INDEX_I32)
       Size = 4;
+    if (Reloc.Type == wasm::R_WASM_MEMORY_ADDR_I64)
+      Size = 8;
     if (Reloc.Offset + Size > EndOffset)
       return make_error<GenericBinaryError>("Bad relocation offset",
                                             object_error::parse_failed);
@@ -1260,7 +1286,7 @@ const wasm::WasmObjectHeader &WasmObjectFile::getHeader() const {
 
 void WasmObjectFile::moveSymbolNext(DataRefImpl &Symb) const { Symb.d.b++; }
 
-uint32_t WasmObjectFile::getSymbolFlags(DataRefImpl Symb) const {
+Expected<uint32_t> WasmObjectFile::getSymbolFlags(DataRefImpl Symb) const {
   uint32_t Result = SymbolRef::SF_None;
   const WasmSymbol &Sym = getWasmSymbol(Symb);
 
@@ -1324,8 +1350,13 @@ uint64_t WasmObjectFile::getWasmSymbolValue(const WasmSymbol &Sym) const {
     // offset within the segment.
     uint32_t SegmentIndex = Sym.Info.DataRef.Segment;
     const wasm::WasmDataSegment &Segment = DataSegments[SegmentIndex].Data;
-    assert(Segment.Offset.Opcode == wasm::WASM_OPCODE_I32_CONST);
-    return Segment.Offset.Value.Int32 + Sym.Info.DataRef.Offset;
+    if (Segment.Offset.Opcode == wasm::WASM_OPCODE_I32_CONST) {
+      return Segment.Offset.Value.Int32 + Sym.Info.DataRef.Offset;
+    } else if (Segment.Offset.Opcode == wasm::WASM_OPCODE_I64_CONST) {
+      return Segment.Offset.Value.Int64 + Sym.Info.DataRef.Offset;
+    } else {
+      llvm_unreachable("unknown init expr opcode");
+    }
   }
   case wasm::WASM_SYMBOL_TYPE_SECTION:
     return 0;

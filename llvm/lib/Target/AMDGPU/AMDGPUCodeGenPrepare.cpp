@@ -28,6 +28,7 @@
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstVisitor.h"
@@ -40,10 +41,10 @@
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
-#include "llvm/Transforms/Utils/IntegerDivision.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Transforms/Utils/IntegerDivision.h"
 #include <cassert>
 #include <iterator>
 
@@ -254,7 +255,7 @@ Type *AMDGPUCodeGenPrepare::getI32Ty(IRBuilder<> &B, const Type *T) const {
 
   if (T->isIntegerTy())
     return B.getInt32Ty();
-  return VectorType::get(B.getInt32Ty(), cast<VectorType>(T)->getNumElements());
+  return FixedVectorType::get(B.getInt32Ty(), cast<FixedVectorType>(T));
 }
 
 bool AMDGPUCodeGenPrepare::isSigned(const BinaryOperator &I) const {
@@ -476,7 +477,7 @@ bool AMDGPUCodeGenPrepare::isU24(Value *V, unsigned ScalarSize) const {
 
 static void extractValues(IRBuilder<> &Builder,
                           SmallVectorImpl<Value *> &Values, Value *V) {
-  VectorType *VT = dyn_cast<VectorType>(V->getType());
+  auto *VT = dyn_cast<FixedVectorType>(V->getType());
   if (!VT) {
     Values.push_back(V);
     return;
@@ -776,7 +777,7 @@ bool AMDGPUCodeGenPrepare::visitFDiv(BinaryOperator &FDiv) {
   Value *Den = FDiv.getOperand(1);
 
   Value *NewFDiv = nullptr;
-  if (VectorType *VT = dyn_cast<VectorType>(FDiv.getType())) {
+  if (auto *VT = dyn_cast<FixedVectorType>(FDiv.getType())) {
     NewFDiv = UndefValue::get(VT);
 
     // FIXME: Doesn't do the right thing for cases where the vector is partially
@@ -922,7 +923,10 @@ Value *AMDGPUCodeGenPrepare::expandDivRem24Impl(IRBuilder<> &Builder,
   Value *FQNeg = Builder.CreateFNeg(FQ);
 
   // float fr = mad(fqneg, fb, fa);
-  Value *FR = Builder.CreateIntrinsic(Intrinsic::amdgcn_fmad_ftz,
+  auto FMAD = !ST->hasMadMacF32Insts()
+                  ? Intrinsic::fma
+                  : (Intrinsic::ID)Intrinsic::amdgcn_fmad_ftz;
+  Value *FR = Builder.CreateIntrinsic(FMAD,
                                       {FQNeg->getType()}, {FQNeg, FB, FA}, FQ);
 
   // int iq = (int)fq;
@@ -1004,6 +1008,16 @@ bool AMDGPUCodeGenPrepare::divHasSpecialOptimization(
   return false;
 }
 
+static Value *getSign32(Value *V, IRBuilder<> &Builder, const DataLayout *DL) {
+  // Check whether the sign can be determined statically.
+  KnownBits Known = computeKnownBits(V, *DL);
+  if (Known.isNegative())
+    return Constant::getAllOnesValue(V->getType());
+  if (Known.isNonNegative())
+    return Constant::getNullValue(V->getType());
+  return Builder.CreateAShr(V, Builder.getInt32(31));
+}
+
 Value* AMDGPUCodeGenPrepare::expandDivRem32(IRBuilder<> &Builder,
                                             BinaryOperator &I,
                                             Value *Num, Value *Den) const {
@@ -1045,9 +1059,8 @@ Value* AMDGPUCodeGenPrepare::expandDivRem32(IRBuilder<> &Builder,
 
   Value *Sign = nullptr;
   if (IsSigned) {
-    ConstantInt *K31 = Builder.getInt32(31);
-    Value *LHSign = Builder.CreateAShr(Num, K31);
-    Value *RHSign = Builder.CreateAShr(Den, K31);
+    Value *LHSign = getSign32(Num, Builder, DL);
+    Value *RHSign = getSign32(Den, Builder, DL);
     // Remainder sign is the same as LHS
     Sign = IsDiv ? Builder.CreateXor(LHSign, RHSign) : LHSign;
 
@@ -1223,7 +1236,7 @@ bool AMDGPUCodeGenPrepare::visitBinaryOperator(BinaryOperator &I) {
     IRBuilder<> Builder(&I);
     Builder.SetCurrentDebugLocation(I.getDebugLoc());
 
-    if (VectorType *VT = dyn_cast<VectorType>(Ty)) {
+    if (auto *VT = dyn_cast<FixedVectorType>(Ty)) {
       NewDiv = UndefValue::get(VT);
 
       for (unsigned N = 0, E = VT->getNumElements(); N != E; ++N) {

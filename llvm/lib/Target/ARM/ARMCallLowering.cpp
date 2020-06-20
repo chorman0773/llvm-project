@@ -140,7 +140,10 @@ struct OutgoingValueHandler : public CallLowering::ValueHandler {
 
     CCValAssign VA = VAs[0];
     assert(VA.needsCustom() && "Value doesn't need custom handling");
-    assert(VA.getValVT() == MVT::f64 && "Unsupported type");
+
+    // Custom lowering for other types, such as f16, is currently not supported
+    if (VA.getValVT() != MVT::f64)
+      return 0;
 
     CCValAssign NextVA = VAs[1];
     assert(NextVA.needsCustom() && "Value doesn't need custom handling");
@@ -360,7 +363,10 @@ struct IncomingValueHandler : public CallLowering::ValueHandler {
 
     CCValAssign VA = VAs[0];
     assert(VA.needsCustom() && "Value doesn't need custom handling");
-    assert(VA.getValVT() == MVT::f64 && "Unsupported type");
+
+    // Custom lowering for other types, such as f16, is currently not supported
+    if (VA.getValVT() != MVT::f64)
+      return 0;
 
     CCValAssign NextVA = VAs[1];
     assert(NextVA.needsCustom() && "Value doesn't need custom handling");
@@ -429,7 +435,7 @@ bool ARMCallLowering::lowerFormalArguments(
   for (auto &Arg : F.args()) {
     if (!isSupportedType(DL, TLI, Arg.getType()))
       return false;
-    if (Arg.hasByValOrInAllocaAttr())
+    if (Arg.hasPassPointeeByValueAttr())
       return false;
   }
 

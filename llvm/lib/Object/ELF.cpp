@@ -145,6 +145,17 @@ StringRef llvm::object::getELFRelocationTypeName(uint32_t Machine,
       break;
     }
     break;
+  case ELF::EM_VE:
+    switch (Type) {
+#include "llvm/BinaryFormat/ELFRelocs/VE.def"
+    default:
+      break;
+    }
+    break;
+      case ELF::EM_wc65c816:
+      switch(Type){
+#include "llvm/BinaryFormat/ELFRelocs/wc65c816.def"
+      }
   default:
     break;
   }
@@ -191,6 +202,8 @@ uint32_t llvm::object::getELFRelativeRelocationType(uint32_t Machine) {
     break;
   case ELF::EM_BPF:
     break;
+  case ELF::EM_wc65c816:
+    return ELF::R_WC65816_REL16;
   default:
     break;
   }
@@ -502,7 +515,6 @@ std::string ELFFile<ELFT>::getDynamicTagAsString(uint64_t Type) const {
 template <class ELFT>
 Expected<typename ELFT::DynRange> ELFFile<ELFT>::dynamicEntries() const {
   ArrayRef<Elf_Dyn> Dyn;
-  size_t DynSecSize = 0;
 
   auto ProgramHeadersOrError = program_headers();
   if (!ProgramHeadersOrError)
@@ -513,7 +525,6 @@ Expected<typename ELFT::DynRange> ELFFile<ELFT>::dynamicEntries() const {
       Dyn = makeArrayRef(
           reinterpret_cast<const Elf_Dyn *>(base() + Phdr.p_offset),
           Phdr.p_filesz / sizeof(Elf_Dyn));
-      DynSecSize = Phdr.p_filesz;
       break;
     }
   }
@@ -532,7 +543,6 @@ Expected<typename ELFT::DynRange> ELFFile<ELFT>::dynamicEntries() const {
         if (!DynOrError)
           return DynOrError.takeError();
         Dyn = *DynOrError;
-        DynSecSize = Sec.sh_size;
         break;
       }
     }
@@ -544,10 +554,6 @@ Expected<typename ELFT::DynRange> ELFFile<ELFT>::dynamicEntries() const {
   if (Dyn.empty())
     // TODO: this error is untested.
     return createError("invalid empty dynamic section");
-
-  if (DynSecSize % sizeof(Elf_Dyn) != 0)
-    // TODO: this error is untested.
-    return createError("malformed dynamic section");
 
   if (Dyn.back().d_tag != ELF::DT_NULL)
     // TODO: this error is untested.

@@ -10,14 +10,14 @@
 #define LLVM_CLANG_TOOLS_EXTRA_CLANGD_CLANGDLSPSERVER_H
 
 #include "ClangdServer.h"
-#include "Context.h"
 #include "DraftStore.h"
 #include "Features.inc"
 #include "FindSymbols.h"
 #include "GlobalCompilationDatabase.h"
-#include "Path.h"
 #include "Protocol.h"
 #include "Transport.h"
+#include "support/Context.h"
+#include "support/Path.h"
 #include "clang/Tooling/Core/Replacement.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringSet.h"
@@ -41,7 +41,7 @@ public:
   /// for compile_commands.json in all parent directories of each file.
   /// If UseDirBasedCDB is false, compile commands are not read from disk.
   // FIXME: Clean up signature around CDBs.
-  ClangdLSPServer(Transport &Transp, const FileSystemProvider &FSProvider,
+  ClangdLSPServer(Transport &Transp, const ThreadsafeFS &TFS,
                   const clangd::CodeCompleteOptions &CCOpts,
                   const clangd::RenameOptions &RenameOpts,
                   llvm::Optional<Path> CompileCommandsDir, bool UseDirBasedCDB,
@@ -207,7 +207,7 @@ private:
     notify("$/progress", Params);
   }
 
-  const FileSystemProvider &FSProvider;
+  const ThreadsafeFS &TFS;
   /// Options used for code completion
   clangd::CodeCompleteOptions CCOpts;
   /// Options used for rename.

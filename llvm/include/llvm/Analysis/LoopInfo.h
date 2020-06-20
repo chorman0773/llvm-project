@@ -60,7 +60,6 @@ class Loop;
 class InductionDescriptor;
 class MDNode;
 class MemorySSAUpdater;
-class PHINode;
 class ScalarEvolution;
 class raw_ostream;
 template <class N, bool IsPostDom> class DominatorTreeBase;
@@ -780,10 +779,11 @@ public:
   bool isCanonical(ScalarEvolution &SE) const;
 
   /// Return true if the Loop is in LCSSA form.
-  bool isLCSSAForm(DominatorTree &DT) const;
+  bool isLCSSAForm(const DominatorTree &DT) const;
 
   /// Return true if this Loop and all inner subloops are in LCSSA form.
-  bool isRecursivelyLCSSAForm(DominatorTree &DT, const LoopInfo &LI) const;
+  bool isRecursivelyLCSSAForm(const DominatorTree &DT,
+                              const LoopInfo &LI) const;
 
   /// Return true if the Loop is in the form that the LoopSimplify form
   /// transforms loops to, which is sometimes called normal form.

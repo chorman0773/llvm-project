@@ -13,8 +13,8 @@
 #include "DWARFDeclContext.h"
 #include "DWARFDefines.h"
 #include "SymbolFileDWARF.h"
-#include "SymbolFileDWARFDwo.h"
 #include "SymbolFileDWARFDebugMap.h"
+#include "SymbolFileDWARFDwo.h"
 #include "UniqueDWARFASTType.h"
 
 #include "Plugins/ExpressionParser/Clang/ClangASTImporter.h"
@@ -2013,11 +2013,8 @@ bool DWARFASTParserClang::CompleteRecordType(const DWARFDIE &die,
     if (class_language == eLanguageTypeObjC) {
       ConstString class_name(clang_type.GetTypeName());
       if (class_name) {
-        dwarf->GetObjCMethods(class_name, [&](DIERef die_ref) {
-          DWARFDebugInfo &debug_info = dwarf->DebugInfo();
-          DWARFDIE method_die = debug_info.GetDIE(die_ref);
-          if (method_die)
-            method_die.ResolveType();
+        dwarf->GetObjCMethods(class_name, [&](DWARFDIE method_die) {
+          method_die.ResolveType();
           return true;
         });
 
@@ -2388,10 +2385,10 @@ Function *DWARFASTParserClang::ParseFunctionFromDWARF(CompileUnit &comp_unit,
 
 void DWARFASTParserClang::ParseSingleMember(
     const DWARFDIE &die, const DWARFDIE &parent_die,
-    lldb_private::CompilerType &class_clang_type,
+    const lldb_private::CompilerType &class_clang_type,
     const lldb::LanguageType class_language,
     std::vector<int> &member_accessibilities,
-    lldb::AccessType &default_accessibility,
+    lldb::AccessType default_accessibility,
     DelayedPropertyList &delayed_properties,
     lldb_private::ClangASTImporter::LayoutInfo &layout_info,
     FieldInfo &last_field_info) {

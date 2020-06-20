@@ -15,17 +15,13 @@
 
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/ilist.h"
-#include "llvm/ADT/ilist_node.h"
 #include "llvm/ADT/iterator_range.h"
-#include "llvm/ADT/simple_ilist.h"
 #include "llvm/ADT/SparseBitVector.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineInstrBundleIterator.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/MC/LaneBitmask.h"
-#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/BranchProbability.h"
-#include "llvm/Support/Printable.h"
 #include <cassert>
 #include <cstdint>
 #include <functional>
@@ -40,6 +36,7 @@ class MachineFunction;
 class MCSymbol;
 class ModuleSlotTracker;
 class Pass;
+class Printable;
 class SlotIndexes;
 class StringRef;
 class raw_ostream;
@@ -517,11 +514,13 @@ public:
     return getSectionID() == MBB->getSectionID();
   }
 
-  /// Update the terminator instructions in block to account for changes to the
-  /// layout. If the block previously used a fallthrough, it may now need a
-  /// branch, and if it previously used branching it may now be able to use a
-  /// fallthrough.
-  void updateTerminator();
+  /// Update the terminator instructions in block to account for changes to
+  /// block layout which may have been made. PreviousLayoutSuccessor should be
+  /// set to the block which may have been used as fallthrough before the block
+  /// layout was modified.  If the block previously fell through to that block,
+  /// it may now need a branch. If it previously branched to another block, it
+  /// may now be able to fallthrough to the current layout successor.
+  void updateTerminator(MachineBasicBlock *PreviousLayoutSuccessor);
 
   // Machine-CFG mutators
 
@@ -837,16 +836,6 @@ public:
   /// instead of basic block \p Old.
   void replacePhiUsesWith(MachineBasicBlock *Old, MachineBasicBlock *New);
 
-  /// Various pieces of code can cause excess edges in the CFG to be inserted.
-  /// If we have proven that MBB can only branch to DestA and DestB, remove any
-  /// other MBB successors from the CFG. DestA and DestB can be null. Besides
-  /// DestA and DestB, retain other edges leading to LandingPads (currently
-  /// there can be only one; we don't check or require that here). Note it is
-  /// possible that DestA and/or DestB are LandingPads.
-  bool CorrectExtraCFGEdges(MachineBasicBlock *DestA,
-                            MachineBasicBlock *DestB,
-                            bool IsCond);
-
   /// Find the next valid DebugLoc starting at MBBI, skipping any DBG_VALUE
   /// and DBG_LABEL instructions.  Return UnknownLoc if there is none.
   DebugLoc findDebugLoc(instr_iterator MBBI);
@@ -1046,7 +1035,7 @@ public:
 template<typename IterT>
 inline IterT skipDebugInstructionsForward(IterT It, IterT End) {
   while (It != End && It->isDebugInstr())
-    It++;
+    ++It;
   return It;
 }
 
@@ -1057,8 +1046,29 @@ inline IterT skipDebugInstructionsForward(IterT It, IterT End) {
 template<class IterT>
 inline IterT skipDebugInstructionsBackward(IterT It, IterT Begin) {
   while (It != Begin && It->isDebugInstr())
-    It--;
+    --It;
   return It;
+}
+
+/// Increment \p It, then continue incrementing it while it points to a debug
+/// instruction. A replacement for std::next.
+template <typename IterT> inline IterT next_nodbg(IterT It, IterT End) {
+  return skipDebugInstructionsForward(std::next(It), End);
+}
+
+/// Decrement \p It, then continue decrementing it while it points to a debug
+/// instruction. A replacement for std::prev.
+template <typename IterT> inline IterT prev_nodbg(IterT It, IterT Begin) {
+  return skipDebugInstructionsBackward(std::prev(It), Begin);
+}
+
+/// Construct a range iterator which begins at \p It and moves forwards until
+/// \p End is reached, skipping any debug instructions.
+template <typename IterT>
+inline auto instructionsWithoutDebug(IterT It, IterT End) {
+  return make_filter_range(make_range(It, End), [](const MachineInstr &MI) {
+    return !MI.isDebugInstr();
+  });
 }
 
 } // end namespace llvm

@@ -26,6 +26,7 @@ Clang-Tidy Checks
    `abseil-redundant-strcat-calls <abseil-redundant-strcat-calls.html>`_, "Yes"
    `abseil-str-cat-append <abseil-str-cat-append.html>`_, "Yes"
    `abseil-string-find-startswith <abseil-string-find-startswith.html>`_, "Yes"
+   `abseil-string-find-str-contains <abseil-string-find-str-contains.html>`_, "Yes"
    `abseil-time-comparison <abseil-time-comparison.html>`_, "Yes"
    `abseil-time-subtraction <abseil-time-subtraction.html>`_, "Yes"
    `abseil-upgrade-duration-conversions <abseil-upgrade-duration-conversions.html>`_, "Yes"
@@ -188,6 +189,7 @@ Clang-Tidy Checks
    `llvm-prefer-isa-or-dyn-cast-in-conditionals <llvm-prefer-isa-or-dyn-cast-in-conditionals.html>`_, "Yes"
    `llvm-prefer-register-over-unsigned <llvm-prefer-register-over-unsigned.html>`_, "Yes"
    `llvm-twine-local <llvm-twine-local.html>`_, "Yes"
+   `llvmlibc-callee-namespace <llvmlibc-calle-namespace.html>`_,
    `llvmlibc-implementation-in-namespace <llvmlibc-implementation-in-namespace.html>`_,
    `llvmlibc-restrict-system-libc-headers <llvmlibc-restrict-system-libc-headers.html>`_, "Yes"
    `misc-definitions-in-headers <misc-definitions-in-headers.html>`_, "Yes"
@@ -216,6 +218,7 @@ Clang-Tidy Checks
    `modernize-raw-string-literal <modernize-raw-string-literal.html>`_, "Yes"
    `modernize-redundant-void-arg <modernize-redundant-void-arg.html>`_, "Yes"
    `modernize-replace-auto-ptr <modernize-replace-auto-ptr.html>`_, "Yes"
+   `modernize-replace-disallow-copy-and-assign-macro <modernize-replace-disallow-copy-and-assign-macro.html>`_, "Yes"
    `modernize-replace-random-shuffle <modernize-replace-random-shuffle.html>`_, "Yes"
    `modernize-return-braced-init-list <modernize-return-braced-init-list.html>`_, "Yes"
    `modernize-shrink-to-fit <modernize-shrink-to-fit.html>`_, "Yes"
@@ -297,6 +300,7 @@ Clang-Tidy Checks
    `readability-string-compare <readability-string-compare.html>`_, "Yes"
    `readability-uniqueptr-delete-release <readability-uniqueptr-delete-release.html>`_, "Yes"
    `readability-uppercase-literal-suffix <readability-uppercase-literal-suffix.html>`_, "Yes"
+   `readability-use-anyofallof`_, "No"
    `zircon-temporary-objects <zircon-temporary-objects.html>`_,
 
 
@@ -319,6 +323,7 @@ Clang-Tidy Checks
    `cert-oop11-cpp <cert-oop11-cpp.html>`_, `performance-move-constructor-init <performance-move-constructor-init.html>`_, "Yes"
    `cert-oop54-cpp <cert-oop54-cpp.html>`_, `bugprone-unhandled-self-assignment <bugprone-unhandled-self-assignment.html>`_,
    `cert-pos44-c <cert-pos44-c.html>`_, `bugprone-bad-signal-to-kill-thread <bugprone-bad-signal-to-kill-thread.html>`_,
+   `cert-str34-c <cert-str34-c.html>`_, `bugprone-signed-char-misuse <bugprone-signed-char-misuse.html>`_,
    `clang-analyzer-core.CallAndMessage <clang-analyzer-core.CallAndMessage.html>`_, `Clang Static Analyzer <https://clang.llvm.org/docs/analyzer/checkers.html>`_,
    `clang-analyzer-core.DivideZero <clang-analyzer-core.DivideZero.html>`_, `Clang Static Analyzer <https://clang.llvm.org/docs/analyzer/checkers.html>`_,
    `clang-analyzer-core.NonNullParamChecker <clang-analyzer-core.NonNullParamChecker.html>`_, `Clang Static Analyzer <https://clang.llvm.org/docs/analyzer/checkers.html>`_,

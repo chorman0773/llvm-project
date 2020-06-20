@@ -77,8 +77,8 @@ struct WasmInitExpr {
   union {
     int32_t Int32;
     int64_t Int64;
-    int32_t Float32;
-    int64_t Float64;
+    uint32_t Float32;
+    uint64_t Float64;
     uint32_t Global;
   } Value;
 };
@@ -159,8 +159,8 @@ struct WasmElemSegment {
 // the index of the segment, and the offset and size within the segment.
 struct WasmDataReference {
   uint32_t Segment;
-  uint32_t Offset;
-  uint32_t Size;
+  uint64_t Offset;
+  uint64_t Size;
 };
 
 struct WasmRelocation {

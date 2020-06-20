@@ -52,11 +52,13 @@ enum class DebugLocVerifyLevel {
 static cl::opt<DebugLocVerifyLevel> VerifyDebugLocs(
     "verify-legalizer-debug-locs",
     cl::desc("Verify that debug locations are handled"),
-    cl::values(clEnumVal(DebugLocVerifyLevel::None, "No verification"),
-               clEnumVal(DebugLocVerifyLevel::Legalizations,
-                         "Verify legalizations"),
-               clEnumVal(DebugLocVerifyLevel::LegalizationsAndArtifactCombiners,
-                         "Verify legalizations and artifact combines")),
+    cl::values(
+        clEnumValN(DebugLocVerifyLevel::None, "none", "No verification"),
+        clEnumValN(DebugLocVerifyLevel::Legalizations, "legalizations",
+                   "Verify legalizations"),
+        clEnumValN(DebugLocVerifyLevel::LegalizationsAndArtifactCombiners,
+                   "legalizations+artifactcombiners",
+                   "Verify legalizations and artifact combines")),
     cl::init(DebugLocVerifyLevel::Legalizations));
 #else
 // Always disable it for release builds by preventing the observer from being
@@ -131,7 +133,6 @@ public:
   }
 
   void createdInstr(MachineInstr &MI) override {
-    LLVM_DEBUG(dbgs() << ".. .. New MI: " << MI);
     LLVM_DEBUG(NewMIs.push_back(&MI));
     createdOrChangedInstr(MI);
   }
@@ -168,6 +169,7 @@ Legalizer::legalizeMachineFunction(MachineFunction &MF, const LegalizerInfo &LI,
                                    ArrayRef<GISelChangeObserver *> AuxObservers,
                                    LostDebugLocObserver &LocObserver,
                                    MachineIRBuilder &MIRBuilder) {
+  MIRBuilder.setMF(MF);
   MachineRegisterInfo &MRI = MF.getRegInfo();
 
   // Populate worklists.
@@ -223,7 +225,7 @@ Legalizer::legalizeMachineFunction(MachineFunction &MF, const LegalizerInfo &LI,
       if (isTriviallyDead(MI, MRI)) {
         LLVM_DEBUG(dbgs() << MI << "Is dead; erasing.\n");
         MI.eraseFromParentAndMarkDBGValuesForRemoval();
-        LocObserver.checkpoint();
+        LocObserver.checkpoint(false);
         continue;
       }
 
@@ -273,7 +275,7 @@ Legalizer::legalizeMachineFunction(MachineFunction &MF, const LegalizerInfo &LI,
         LLVM_DEBUG(dbgs() << MI << "Is dead\n");
         RemoveDeadInstFromLists(&MI);
         MI.eraseFromParentAndMarkDBGValuesForRemoval();
-        LocObserver.checkpoint();
+        LocObserver.checkpoint(false);
         continue;
       }
       SmallVector<MachineInstr *, 4> DeadInstructions;
@@ -281,15 +283,14 @@ Legalizer::legalizeMachineFunction(MachineFunction &MF, const LegalizerInfo &LI,
       if (ArtCombiner.tryCombineInstruction(MI, DeadInstructions,
                                             WrapperObserver)) {
         WorkListObserver.printNewInstrs();
-        LocObserver.checkpoint(
-            VerifyDebugLocs ==
-            DebugLocVerifyLevel::LegalizationsAndArtifactCombiners);
         for (auto *DeadMI : DeadInstructions) {
           LLVM_DEBUG(dbgs() << *DeadMI << "Is dead\n");
           RemoveDeadInstFromLists(DeadMI);
           DeadMI->eraseFromParentAndMarkDBGValuesForRemoval();
         }
-        LocObserver.checkpoint();
+        LocObserver.checkpoint(
+            VerifyDebugLocs ==
+            DebugLocVerifyLevel::LegalizationsAndArtifactCombiners);
         Changed = true;
         continue;
       }

@@ -257,8 +257,14 @@ DescriptorInquiry::DescriptorInquiry(NamedEntity &&base, Field field, int dim)
 static std::optional<Expr<SubscriptInteger>> SymbolLEN(const Symbol &sym) {
   if (auto dyType{DynamicType::From(sym)}) {
     if (const semantics::ParamValue * len{dyType->charLength()}) {
-      if (auto intExpr{len->GetExplicit()}) {
-        return ConvertToType<SubscriptInteger>(*std::move(intExpr));
+      if (len->isExplicit()) {
+        if (auto intExpr{len->GetExplicit()}) {
+          return ConvertToType<SubscriptInteger>(*std::move(intExpr));
+        } else {
+          // There was an error constructing this symbol's type.  It should
+          // have a length expression, but we couldn't retrieve it
+          return std::nullopt;
+        }
       } else {
         return Expr<SubscriptInteger>{
             DescriptorInquiry{NamedEntity{sym}, DescriptorInquiry::Field::Len}};
@@ -658,10 +664,6 @@ bool ProcedureRef::operator==(const ProcedureRef &that) const {
 template <typename T>
 bool Designator<T>::operator==(const Designator<T> &that) const {
   return TestVariableEquality(*this, that);
-}
-template <typename T>
-bool Variable<T>::operator==(const Variable<T> &that) const {
-  return u == that.u;
 }
 bool DescriptorInquiry::operator==(const DescriptorInquiry &that) const {
   return field_ == that.field_ && base_ == that.base_ &&

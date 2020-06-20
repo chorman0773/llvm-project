@@ -93,6 +93,10 @@ protected:
   /// constants into comdat sections.
   bool HasCOFFComdatConstants = false;
 
+  /// True if this is an XCOFF target that supports visibility attributes as
+  /// part of .global, .weak, .extern, and .comm. Default is false.
+  bool HasVisibilityOnlyWithLinkage = false;
+
   /// This is the maximum possible length of an instruction, which is needed to
   /// compute the size of an inline asm.  Defaults to 4.
   unsigned MaxInstLength = 4;
@@ -327,10 +331,6 @@ protected:
   /// Defaults to false.
   bool AvoidWeakIfComdat = false;
 
-  /// True if we have a .lglobl directive, which is used to emit the information
-  /// of a static symbol into the symbol table. Defaults to false.
-  bool HasDotLGloblDirective = false;
-
   /// This attribute, if not MCSA_Invalid, is used to declare a symbol as having
   /// hidden visibility.  Defaults to MCSA_Hidden.
   MCSymbolAttr HiddenVisibilityAttr = MCSA_Hidden;
@@ -502,6 +502,9 @@ public:
   bool hasMachoTBSSDirective() const { return HasMachoTBSSDirective; }
   bool hasCOFFAssociativeComdats() const { return HasCOFFAssociativeComdats; }
   bool hasCOFFComdatConstants() const { return HasCOFFComdatConstants; }
+  bool hasVisibilityOnlyWithLinkage() const {
+    return HasVisibilityOnlyWithLinkage;
+  }
 
   /// Returns the maximum possible encoded instruction size in bytes. If \p STI
   /// is null, this should be the maximum size for any subtarget.
@@ -592,8 +595,6 @@ public:
   }
 
   bool avoidWeakIfComdat() const { return AvoidWeakIfComdat; }
-
-  bool hasDotLGloblDirective() const { return HasDotLGloblDirective; }
 
   MCSymbolAttr getHiddenVisibilityAttr() const { return HiddenVisibilityAttr; }
 
