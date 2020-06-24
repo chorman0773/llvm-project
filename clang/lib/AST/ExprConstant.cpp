@@ -8866,16 +8866,7 @@ bool PointerExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
         return false;
     }
   }
-  case Builtin::BI__builtin_compiler_error:
-  {
-    const auto *begin = E->getArg(0);
-    const auto *end = E->getArg(1);
-    const auto *src_ptr = E->getArg(2);
-    std::string diagnostic{};
-    const Type* src_type = src_ptr->getType().getTypePtr();
 
-    return false;
-  }
   default:
     break;
   }
