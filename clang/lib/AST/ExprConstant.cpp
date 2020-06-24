@@ -8866,16 +8866,7 @@ bool PointerExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
         return false;
     }
   }
-  case Builtin::BI__builtin_compiler_error:
-  {
-    const auto *begin = E->getArg(0);
-    const auto *end = E->getArg(1);
-    const auto *src_ptr = E->getArg(2);
-    std::string diagnostic{};
-    const Type* src_type = src_ptr->getType().getTypePtr();
 
-    return false;
-  }
   default:
     break;
   }
@@ -13746,6 +13737,30 @@ public:
 
     case Builtin::BI__builtin_operator_delete:
       return HandleOperatorDeleteCall(Info, E);
+    case Builtin::BI__builtin_compiler_error:
+    {
+      LValue begin;
+      LValue end;
+      std::string diagnostic{};
+      if(!EvaluatePointer(E->getArg(0),begin,Info)||!EvaluatePointer(E->getArg(1),end,Info))
+        return false;
+      if(begin.isNullPointer()||end.isNullPointer())
+        return false;
+      if(!HasSameBase(begin,end))
+        return false;
+      uint64_t begin_off = begin.getLValueOffset().getQuantity();
+      uint64_t end_off = end.getLValueOffset().getQuantity();
+      if(begin_off>end_off)
+        return false;
+      if(Info.CheckingPotentialConstantExpression)
+        return true; // A valid call to std::compile_error is a constant expression, even though it ends in a diagnostic
+      if(!Info.InConstantContext)
+        return false; // A call to std::compile_error is not a constant expresison, unless it is *manifestly constant evaluated*.
+      // TODO Dereference begin in loop, and copy the APInt value into `diagnostic`.
+
+      Info.CCEDiag(E) << "Call to std::compile_error: " << diagnostic;
+      return false;
+    }
     default:
       break;
     }
