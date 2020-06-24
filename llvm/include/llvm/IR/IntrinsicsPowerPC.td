@@ -417,6 +417,14 @@ let TargetPrefix = "ppc" in {  // All intrinsics start with "llvm.ppc.".
   def int_ppc_altivec_vpextd : GCCBuiltin<"__builtin_altivec_vpextd">,
               Intrinsic<[llvm_v2i64_ty], [llvm_v2i64_ty, llvm_v2i64_ty],
                         [IntrNoMem]>;
+
+   // P10 Vector Clear Bytes
+   def int_ppc_altivec_vclrlb :  GCCBuiltin<"__builtin_altivec_vclrlb">,
+               Intrinsic<[llvm_v16i8_ty], [llvm_v16i8_ty, llvm_i32_ty],
+                         [IntrNoMem]>;
+   def int_ppc_altivec_vclrrb :  GCCBuiltin<"__builtin_altivec_vclrrb">,
+               Intrinsic<[llvm_v16i8_ty], [llvm_v16i8_ty, llvm_i32_ty],
+                         [IntrNoMem]>;
 }
 
 // Vector average.
@@ -945,6 +953,18 @@ def int_ppc_vsx_xxinsertw :
       PowerPC_VSX_Intrinsic<"xxinsertw",[llvm_v4i32_ty],
                             [llvm_v4i32_ty,llvm_v2i64_ty,llvm_i32_ty],
                             [IntrNoMem]>;
+def int_ppc_vsx_xxgenpcvbm :
+      PowerPC_VSX_Intrinsic<"xxgenpcvbm", [llvm_v16i8_ty],
+                            [llvm_v16i8_ty, llvm_i32_ty], [IntrNoMem]>;
+def int_ppc_vsx_xxgenpcvhm :
+      PowerPC_VSX_Intrinsic<"xxgenpcvhm", [llvm_v8i16_ty],
+                            [llvm_v8i16_ty, llvm_i32_ty], [IntrNoMem]>;
+def int_ppc_vsx_xxgenpcvwm :
+      PowerPC_VSX_Intrinsic<"xxgenpcvwm", [llvm_v4i32_ty],
+                            [llvm_v4i32_ty, llvm_i32_ty], [IntrNoMem]>;
+def int_ppc_vsx_xxgenpcvdm :
+      PowerPC_VSX_Intrinsic<"xxgenpcvdm", [llvm_v2i64_ty],
+                            [llvm_v2i64_ty, llvm_i32_ty], [IntrNoMem]>;
 }
 
 //===----------------------------------------------------------------------===//
