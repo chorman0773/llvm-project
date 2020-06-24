@@ -259,6 +259,9 @@ def err_invalid_vector_float_decl_spec : Error<
 def err_invalid_vector_double_decl_spec : Error <
   "use of 'double' with '__vector' requires VSX support to be enabled "
   "(available on POWER7 or later)">;
+def err_invalid_vector_bool_int128_decl_spec : Error <
+  "use of '__int128' with '__vector bool' requires VSX support enabled (on "
+  "POWER10 or later)">;
 def err_invalid_vector_long_long_decl_spec : Error <
   "use of 'long long' with '__vector bool' requires VSX support (available on "
   "POWER7 or later) or extended Altivec support (available on POWER8 or later) "
@@ -10523,7 +10526,13 @@ def err_await_suspend_invalid_return_type : Error<
 def note_await_ready_no_bool_conversion : Note<
   "return type of 'await_ready' is required to be contextually convertible to 'bool'"
 >;
-}
+def err_coroutine_promise_final_suspend_requires_nothrow : Error<
+  "the expression 'co_await __promise.final_suspend()' is required to be non-throwing"
+>;
+def note_coroutine_function_declare_noexcept : Note<
+  "must be declared with 'noexcept'"
+>;
+} // end of coroutines issue category
 
 let CategoryName = "Documentation Issue" in {
 def warn_not_a_doxygen_trailing_member_comment : Warning<
