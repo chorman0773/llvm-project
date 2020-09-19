@@ -785,17 +785,15 @@ enum {
 #include "ELFRelocs/VE.def"
 };
 
-<<<<<<< HEAD
 
 // ELF Relocation types for CSKY
 enum {
 #include "ELFRelocs/CSKY.def"
-=======
+};
 // ELF Relocation types for wc65c816
 
 enum{
 #include "ELFRelocs/wc65c816.def"
->>>>>>> Add compiler_fences
 };
 // ELF Relocation types for wc65c816
 
